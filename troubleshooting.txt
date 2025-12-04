@@ -1,4 +1,0 @@
-DMG85480F050_01WTC - after uploading the DWIN_SET folder with the uSD card, this display shows the demo GUI, but does not respond to touch at all
-DMG80480F043_01WTC - after uploading this demo project, this display does not start the bootloader at all and it is not possible to load anything into it
-DMG48320F035_01WTC - this demo project is the only one that works, but we do not have a serial debug output, even though the Data auto-uploading options are checked, as well as the Touch-sensitive Changes Update option in the .CFG file.
-driver XR21X141X-Driver is installed

@@ -1,0 +1,105 @@
+C51 COMPILER V9.60.0.0   UART                                                              12/04/2025 18:45:23 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN .\obj\uart.obj
+COMPILER INVOKED BY: C:\KeilC51\C51\BIN\C51.EXE uart.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\T5L51) DEBUG OBJECTEXTEN
+                    -D PRINT(.\Listings\uart.lst) OBJECT(.\obj\uart.obj)
+
+line level    source
+
+   1          /**
+   2           * @file uart.c
+   3           * @brief UART Communication Driver.
+   4           * @details This file manages UART5 (UART3 in some DWIN docs terminology relative to SFRs,
+   5           *          but logically handled as the primary comms channel here).
+   6           *          It implements a circular buffer for reception and basic blocking transmission.
+   7           */
+   8          
+   9          #include "uart.h"
+  10          
+  11          volatile u8 Rx_Buffer[32];
+  12          volatile u8 Rx_Head = 0;
+  13          volatile u8 Rx_Tail = 0;
+  14          
+  15          /**
+  16           * @brief Initialize UART5
+  17           * @details Configures UART5 for communication (Receive/Transmit enabled).
+  18           *          Disables RS485 TX enable pin initially.
+  19           */
+  20          void UART5_Init(void)
+  21          {
+  22   1          SCON3T=0x80;        // Enable UART5 Transmit
+  23   1          SCON3R=0x80;        // Enable UART5 Receive
+  24   1          // Baud rate setting (Assuming specific system clock divider for desired baud)
+  25   1          BODE3_DIV_H=0x00;
+  26   1          BODE3_DIV_L=0xE0;
+  27   1          ES3R=1;             // Enable UART5 Receive Interrupt
+  28   1          RS485_TX_EN=0;      // Set RS485 to Receive Mode (Low)
+  29   1          EA=1;               // Enable Global Interrupts
+  30   1      }
+  31          
+  32          /**
+  33           * @brief Send a single byte via UART5
+  34           * @param dat The byte to send.
+  35           * @details This function blocks until transmission is complete.
+  36           */
+  37          void UART5_Sendbyte(u8 dat)
+  38          {
+  39   1          SBUF3_TX = dat;             // Load data into transmit buffer
+  40   1          while((SCON3T&0x01)==0);    // Wait for Transmit Interrupt Flag (TI)
+  41   1          SCON3T &=0xFE;              // Clear TI Flag
+  42   1      }
+  43          
+  44          /**
+  45           * @brief Send a string via UART5
+  46           * @param pstr Pointer to the data buffer.
+  47           * @param strlen Length of data to send.
+  48           * @details Handles RS485 enable/disable switching around the transmission.
+  49           */
+  50          void UART5_SendStr(u8 *pstr,u8 strlen)
+  51          {
+  52   1          if((NULL == pstr)||(0 == strlen))
+  53   1          {
+  54   2              return;
+C51 COMPILER V9.60.0.0   UART                                                              12/04/2025 18:45:23 PAGE 2   
+
+  55   2          }
+  56   1          RS485_TX_EN=1; // Enable RS485 Driver (Transmit Mode)
+  57   1          while(strlen--)
+  58   1          {
+  59   2              UART5_Sendbyte(*pstr);
+  60   2              pstr++;
+  61   2          }
+  62   1          RS485_TX_EN=0; // Disable RS485 Driver (Receive Mode)
+  63   1      }
+  64          
+  65          /**
+  66           * @brief UART5 Receive Interrupt Service Routine
+  67           * @details Reads received byte and stores it in the circular buffer.
+  68           */
+  69          void UART5_RX_ISR_PC(void)    interrupt 14
+  70          {
+  71   1          // Check if Receive Interrupt Flag is set
+  72   1          if((SCON3R&0x01)==0x01)
+  73   1          {
+  74   2              u8 res = SBUF3_RX;          // Read received data
+  75   2              Rx_Buffer[Rx_Head] = res;   // Store in buffer
+  76   2              Rx_Head = (Rx_Head + 1) & 0x1F; // Increment head with wrap-around (Mod 32)
+  77   2              SCON3R&=0xFE;               // Clear Receive Interrupt Flag
+  78   2          }
+  79   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    166    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     34       4
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
