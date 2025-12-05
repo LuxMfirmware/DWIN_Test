@@ -1,0 +1,202 @@
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/05/2025 16:48:11 PAGE 1   
+
+
+C51 COMPILER V9.60.0.0, COMPILATION OF MODULE DWIN_PERIPHERALS
+OBJECT MODULE PLACED IN .\obj\DWIN_PERIPHERALS.obj
+COMPILER INVOKED BY: C:\KeilC51\C51\BIN\C51.EXE DWIN_PERIPHERALS.c LARGE OPTIMIZE(8,SPEED) BROWSE INCDIR(..\T5L51) DEBUG
+                    - OBJECTEXTEND PRINT(.\Listings\DWIN_PERIPHERALS.lst) OBJECT(.\obj\DWIN_PERIPHERALS.obj)
+
+line level    source
+
+   1          /**
+   2           * @file DWIN_PERIPHERALS.C
+   3           * @brief Wrapper funkcije za kontrolu DWIN T5L periferija (PWM, ADC, LED, RTC).
+   4           * @details Koristi implementacije DGUS VP pristupa (read_dgus_vp/write_dgus_vp) iz sys.c/sys.h.
+   5           * Svi upisi i citanja se vrse u 'Word' (u16) formatu.
+   6           */
+   7          
+   8          #include "sys.h" // Ukljucuje i T5LOS8051.h
+   9          #include "DWIN_GUI_VP.H"
+  10          
+  11          // =========================================================================
+  12          // 1. PWM FUNKCIJE (Pulse Width Modulation)
+  13          // =========================================================================
+  14          
+  15          /**
+  16           * @brief Konfiguriše frekvenciju i preciznost PWM0.
+  17           * @details Koristi VP_PWM0_SET (0x0086). Word D3: 0x5A za enablovanje postavljanja.
+  18           * @param div_coeff: Frekventni koeficijent podele (Frequency Division Coefficient), D2.
+  19           * @param precision: Preciznost / Gornja granica brojanja (D1:D0).
+  20           * @return u8 (0 - OK)
+  21           */
+  22          u8 PWM0_Set_Config(u8 div_coeff, u16 precision) {
+  23   1          u8 datas[4]; // Koristimo u8 niz (bajtove), ne u16!
+  24   1      
+  25   1          // Tačno kako si napisao:
+  26   1          datas[0] = 0x5A;                    // D3: Enable byte
+  27   1          datas[1] = div_coeff;               // D2: Frequency division (npr. 0x01)
+  28   1          datas[2] = (u8)(precision >> 8);    // D1: Precision High Byte (npr. 0x20)
+  29   1          datas[3] = (u8)(precision);         // D0: Precision Low Byte  (npr. 0x42)
+  30   1      
+  31   1          // Pišemo 4 bajta na adresu 0x86
+  32   1          write_dgus_vp(VP_PWM0_SET, datas, 4);
+  33   1      
+  34   1          return 0;
+  35   1      }
+  36          /**
+  37           * @brief Postavlja radni ciklus (Duty Cycle) za PWM0.
+  38           * @details Koristi VP_PWM0_OUT (0x0092) za postavljanje širine visokog nivoa.
+  39           * @param duty_value: Vrednost širine visokog nivoa (0x0000 do Max Precision).
+  40           * @return u8 (0 - OK)
+  41           */
+  42          u8 PWM0_Set_Duty(u16 duty_value) {
+  43   1          // I ovdje možemo bajt po bajt da budemo sigurni
+  44   1          u8 datas[2];
+  45   1          datas[0] = (u8)(duty_value >> 8);
+  46   1          datas[1] = (u8)(duty_value);
+  47   1          
+  48   1          write_dgus_vp(VP_PWM0_OUT, datas, 2);
+  49   1          return 0;
+  50   1      }
+  51          
+  52          /**
+  53           * @brief Konfiguriše frekvenciju i preciznost PWM1.
+  54           * @details Koristi VP_PWM1_SET (0x0088). Word D3: 0x5A za enablovanje postavljanja.
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/05/2025 16:48:11 PAGE 2   
+
+  55           * @param div_coeff: Frekventni koeficijent podele (Frequency Division Coefficient), D2.
+  56           * @param precision: Preciznost / Gornja granica brojanja (D1:D0).
+  57           * @return u8 (0 - OK)
+  58           */
+  59          u8 PWM1_Set_Config(u8 div_coeff, u16 precision) {
+  60   1          u8 datas[4];
+  61   1      
+  62   1          datas[0] = 0x5A;                    // D3: Enable byte
+  63   1          datas[1] = div_coeff;               // D2: Frequency division
+  64   1          datas[2] = (u8)(precision >> 8);    // D1: Precision High Byte
+  65   1          datas[3] = (u8)(precision);         // D0: Precision Low Byte
+  66   1      
+  67   1          // Pišemo 4 bajta na adresu 0x88
+  68   1          write_dgus_vp(VP_PWM1_SET, datas, 4);
+  69   1      
+  70   1          return 0;
+  71   1      }
+  72          /**
+  73           * @brief Postavlja radni ciklus (Duty Cycle) za PWM1.
+  74           * @details Koristi VP_PWM1_OUT (0x0093) za postavljanje širine visokog nivoa.
+  75           * @param duty_value: Vrednost širine visokog nivoa (0x0000 do Max Precision).
+  76           * @return u8 (0 - OK)
+  77           */
+  78          u8 PWM1_Set_Duty(u16 duty_value) {
+  79   1          u8 datas[2];
+  80   1          datas[0] = (u8)(duty_value >> 8);
+  81   1          datas[1] = (u8)(duty_value);
+  82   1          
+  83   1          write_dgus_vp(VP_PWM1_OUT, datas, 2);
+  84   1          return 0;
+  85   1      }
+  86          
+  87          
+  88          // =========================================================================
+  89          // 2. ADC FUNKCIJE (Analog-to-Digital Converter)
+  90          // =========================================================================
+  91          
+  92          /**
+  93           * @brief Čita trenutnu 16-bitnu sirovu AD vrednost sa specifičnog kanala (AD0-AD7).
+  94           * @details Koristi VP_ADC_INSTANT (0x0032). Svaki kanal zauzima 1 Word (2 bajta).
+  95           * @param channel: Broj ADC kanala (0 do 7).
+  96           * @param raw_value_ptr: Pointer na u16 varijablu gde ce biti smestena ocitana vrednost.
+  97           * @return u8 (0 - OK, 1 - Greska)
+  98           */
+  99          u8 ADC_Read_Raw(u8 channel, u16* raw_value_ptr) {
+ 100   1          u32 address;
+ 101   1      
+ 102   1          if (channel > 7 || raw_value_ptr == NULL) {
+ 103   2              return 1; 
+ 104   2          }
+ 105   1          
+ 106   1          // Adresa = VP_ADC_INSTANT (0x0032) + channel * 2 (Word adresa)
+ 107   1          address = VP_ADC_INSTANT + (u32)channel * 2;
+ 108   1          
+ 109   1          // Citamo 1 Word (2 bajta)
+ 110   1          read_dgus_vp(address, raw_value_ptr, 2);
+ 111   1          
+ 112   1          return 0;
+ 113   1      }
+ 114          
+ 115          // =========================================================================
+ 116          // 3. LED/BACKLIGHT FUNKCIJE
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/05/2025 16:48:11 PAGE 3   
+
+ 117          // =========================================================================
+ 118          
+ 119          /**
+ 120           * @brief Postavlja trenutnu osvetljenost pozadinskog svetla.
+ 121           * @details Koristi VP_LED_CONFIG (0x0082). Pise se u Low Byte (D0).
+ 122           * @param brightness: Vrednost osvetljenosti (0x00 do 0x64, tj. 0% do 100%).
+ 123           * @return u8 (0 - OK)
+ 124           */
+ 125          u8 LED_Set_Brightness_Now(u8 brightness) {
+ 126   1      
+ 127   1          write_dgus_vp(VP_LED_CONFIG, &brightness, 1);
+ 128   1          return 0;
+ 129   1      }
+ 130          
+ 131          /**
+ 132           * @brief TEST KOMANDA: Postavlja osvetljenost pozadinskog svetla na 50% (0x32).
+ 133           * @details Koristi VP_LED_CONFIG (0x0082).
+ 134           * @return void
+ 135           */
+ 136          void LED_Test_Set_50_Percent(void) {
+ 137   1          u8 brightness = 0x32; 
+ 138   1          LED_Set_Brightness_Now(brightness);
+ 139   1      }
+ 140          
+ 141          // =========================================================================
+ 142          // 4. RTC FUNKCIJE (Real-Time Clock)
+ 143          // =========================================================================
+ 144          
+ 145          /**
+ 146           * @brief Pisanje datuma i vremena u RTC DGUS registre.
+ 147           * @details Koristi VP_RTC (0x0010). Upisuje 8 bajtova (4 Worda)
+ 148           * koji sadrže vreme.
+ 149           * @param rtc_data: Struktura koja sadrzi sve komponente vremena/datuma.
+ 150           * @return u8 (0 - OK)
+ 151           */
+ 152          u8 RTC_Set_Time_DGUS(rtc_time rtc_data) {
+ 153   1          // VP_RTC (0x0010) je 4 Worda (8 bajta)
+ 154   1          // Struktura rtc_time je vec alinjirana (8 bajtova)
+ 155   1          // 
+ 156   1          // Format upisa (u bajtovima): Year, Month, Day, Week, Hour, Min, Sec, Res
+ 157   1          // Write 4 Word-a (8 bajtova)
+ 158   1          write_dgus_vp(VP_RTC, &rtc_data, 8); 
+ 159   1          return 0;
+ 160   1      }
+ 161          
+ 162          /**
+ 163           * @brief Čitanje datuma i vremena iz RTC DGUS registara.
+ 164           * @details Koristi VP_RTC (0x0010). Čita 8 bajtova (4 Worda).
+ 165           * @param rtc_data_ptr: Pointer na strukturu gde ce biti smesteni podaci.
+ 166           * @return u8 (0 - OK)
+ 167           */
+ 168          u8 RTC_Read_Time_DGUS(rtc_time* rtc_data_ptr) {
+ 169   1          // Citamo 4 Word-a (8 bajtova)
+ 170   1          read_dgus_vp(VP_RTC, rtc_data_ptr, 8);
+ 171   1          return 0;
+ 172   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    342    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      24
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/05/2025 16:48:11 PAGE 4   
+
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   MAIN                                                              12/04/2025 18:45:23 PAGE 1   
+C51 COMPILER V9.60.0.0   MAIN                                                              12/05/2025 16:48:10 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE MAIN
@@ -21,141 +21,194 @@ line level    source
   11          #include "sys.h"
   12          #include "uart.h"
   13          
-  14          // Global variables
-  15          /** @brief Counter variable incremented by button press. */
-  16          u16 my_variable = 0;
-  17          /** @brief Variable to store the button state read from DGUS VP. */
-  18          u16 button_val = 0;
-  19          /** @brief Timestamp for the last keep-alive message sent. */
-  20          u16 last_keep_alive = 0;
-  21          
-  22          /**
-  23           * @brief Main Entry Point
-  24           * @details Initializes system peripherals and enters the infinite control loop.
-  25           */
-  26          void main(void)
-  27          {
-  28   1          // --- Initialization Phase ---
-  29   1          INIT_CPU();     // Initialize CPU core registers and GPIO directions
-  30   1          T0_Init();      // Initialize Timer 0 (System Tick)
-  31   1          T1_Init();      // Initialize Timer 1 (RTC Tick)
-  32   1          UART5_Init();   // Initialize UART5 for communication
-  33   1          RTC_Init();     // Initialize Real Time Clock
-  34   1          PORT_Init();    // Initialize Port IO specific configurations
-  35   1      
-  36   1          // Send startup message
-  37   1          UART5_SendStr("Demo Started\r\n", 14);
-  38   1      
-  39   1          // Initialize the keep-alive timer
-  40   1          last_keep_alive = Wait_Count;
-  41   1      
-  42   1          // --- Main Control Loop ---
-  43   1          while(1)
-  44   1          {
-  45   2              // Update RTC and synchronize with Display VP if needed
-  46   2              Time_Update();
-  47   2      
-  48   2              // --- Keep Alive Mechanism ---
-  49   2              // Check if 5 seconds (5000 ticks) have passed since the last keep-alive
-  50   2              if((u16)(Wait_Count - last_keep_alive) >= 5000)
-  51   2              {
-  52   3                  last_keep_alive = Wait_Count; // Reset timestamp
-  53   3      
-  54   3                  // --- ISPIS TACNOG VREMENA (NOVI KOD) ---
-C51 COMPILER V9.60.0.0   MAIN                                                              12/04/2025 18:45:23 PAGE 2   
+  14          extern u8 ADC_Read_Raw(u8 channel, u16* raw_value_ptr);
+  15          extern u8 LED_Set_Brightness_Now(u8 brightness);
+  16          // Global variables
+  17          /** @brief Counter variable incremented by button press. */
+  18          u16 my_variable = 0;
+  19          /** @brief Variable to store the button state read from DGUS VP. */
+  20          u16 button_val = 0;
+  21          /** @brief Timestamp for the last keep-alive message sent. */
+  22          u16 last_keep_alive = 0;
+  23          /** @brief Timestamp for P1 update. */
+  24          u16 last_p1_update = 0;
+  25          /** @brief Counter for Port 1. */
+  26          u8 p1_cnt = 0;
+  27          /** @brief ADC Value storage */
+  28          u16 adc0_raw_val = 0;
+  29          u32 adc0_mv_val = 0; // Koristimo 32-bit za racunicu da izbegnemo overflow
+  30          
+  31          /**
+  32           * @brief Main Entry Point
+  33           * @details Initializes system peripherals and enters the infinite control loop.
+  34           */
+  35          void main(void)
+  36          {
+  37   1          u8 buff[4]; // Buffer za citanje
+  38   1          // --- Initialization Phase ---
+  39   1          INIT_CPU();     // Initialize CPU core registers and GPIO directions
+  40   1          T0_Init();      // Initialize Timer 0 (System Tick)
+  41   1          T1_Init();      // Initialize Timer 1 (RTC Tick)
+  42   1          T2_Init();      // Initialize Timer 2 (1kHz PWM on P2.0)
+  43   1          UART5_Init();   // Initialize UART5 for communication
+  44   1          RTC_Init();     // Initialize Real Time Clock
+  45   1          PORT_Init();    // Initialize Port IO specific configurations
+  46   1      
+  47   1          // Send startup message
+  48   1          UART5_SendStr("Demo Started\r\n", 14);
+  49   1      
+  50   1          // Initialize the keep-alive timer
+  51   1          last_keep_alive = Wait_Count;
+  52   1          last_p1_update = Wait_Count;
+  53   1      
+  54   1          // --- Main Control Loop ---
+C51 COMPILER V9.60.0.0   MAIN                                                              12/05/2025 16:48:10 PAGE 2   
 
-  55   3                  UART5_SendStr("Time: ", 6);
-  56   3      
-  57   3                  // Sat (H:M:S format)
-  58   3                  UART5_Sendbyte((real_time.hour / 10) + '0');
-  59   3                  UART5_Sendbyte((real_time.hour % 10) + '0');
-  60   3                  UART5_Sendbyte(':');
-  61   3      
-  62   3                  // Minuta
-  63   3                  UART5_Sendbyte((real_time.min / 10) + '0');
-  64   3                  UART5_Sendbyte((real_time.min % 10) + '0');
-  65   3                  UART5_Sendbyte(':');
-  66   3      
-  67   3                  // Sekunda
-  68   3                  UART5_Sendbyte((real_time.sec / 10) + '0');
-  69   3                  UART5_Sendbyte((real_time.sec % 10) + '0');
-  70   3      
-  71   3                  UART5_SendStr("\r\n", 2); // Novi red za vrijeme
-  72   3                  // ----------------------------------------
-  73   3              }
-  74   2      
-  75   2              // --- UART RX Handling ---
-  76   2              // Check if there is new data in the UART receive buffer
-  77   2              if(Rx_Head != Rx_Tail)
-  78   2              {
-  79   3                  // Read one byte from the circular buffer
-  80   3                  u8 c = Rx_Buffer[Rx_Tail];
-  81   3                  Rx_Tail = (Rx_Tail + 1) & 0x1F; // Increment tail with wrap-around
-  82   3      
-  83   3                  // Process Numeric Commands
-  84   3                  // Check if the received character is a digit '0'-'9'
-  85   3                  if(c >= '0' && c <= '9')
-  86   3                  {
-  87   4                      u16 val = (u16)(c - '0'); // Convert ASCII to integer
-  88   4                      // Write the value to DGUS Variable Pointer (VP) address 0x1100
-  89   4                      write_dgus_vp(0x2040, &val, 2);
-  90   4      
-  91   4                      // Echo back valid input
-  92   4                      UART5_SendStr("written number: ", 16);
-  93   4                      UART5_Sendbyte(c);
-  94   4                      UART5_SendStr("\r\n", 2);
-  95   4                  }
-  96   3                  else
-  97   3                  {
-  98   4                      // Echo back invalid input
-  99   4                      UART5_SendStr("out of limit\r\n", 14);
- 100   4                  }
- 101   3              }
- 102   2      
- 103   2              // --- Button Handling ---
- 104   2              // Read the status of the button at VP address 0x1200.
- 105   2              // The display is expected to write '1' to this address when the button is pressed.
- 106   2              read_dgus_vp(0x1200, &button_val, 2);
- 107   2      
- 108   2              if(button_val == 1)
- 109   2              {
- 110   3                  my_variable++; // Increment the counter
- 111   3      
- 112   3                  // Send debug information via UART
- 113   3                  UART5_SendStr("Variable updated [new value:", 28);
- 114   3      
- 115   3                  // Convert the 3-digit counter value to ASCII and send character by character
- 116   3                  UART5_Sendbyte(((my_variable / 100) % 10) + '0'); // Hundreds digit
-C51 COMPILER V9.60.0.0   MAIN                                                              12/04/2025 18:45:23 PAGE 3   
+  55   1          while(1)
+  56   1          {
+  57   2              // Update RTC and synchronize with Display VP if needed
+  58   2              Time_Update();
+  59   2      
+  60   2              // --- P1 Update (100ms) ---
+  61   2              if((u16)(Wait_Count - last_p1_update) >= 100)
+  62   2              {
+  63   3                  last_p1_update = Wait_Count;
+  64   3                  P1 = p1_cnt;
+  65   3                  p1_cnt++;
+  66   3                  LED_Set_Brightness_Now(p1_cnt/3);
+  67   3              }
+  68   2      
+  69   2              // --- Keep Alive Mechanism ---
+  70   2              // Check if 5 seconds (5000 ticks) have passed since the last keep-alive
+  71   2              if((u16)(Wait_Count - last_keep_alive) >= 5000)
+  72   2              {
+  73   3                  last_keep_alive = Wait_Count; // Reset timestamp
+  74   3      
+  75   3                  // --- ISPIS TACNOG VREMENA ---
+  76   3                  UART5_SendStr("Time: ", 6);
+  77   3                  UART5_Sendbyte((real_time.hour / 10) + '0');
+  78   3                  UART5_Sendbyte((real_time.hour % 10) + '0');
+  79   3                  UART5_Sendbyte(':');
+  80   3                  UART5_Sendbyte((real_time.min / 10) + '0');
+  81   3                  UART5_Sendbyte((real_time.min % 10) + '0');
+  82   3                  UART5_Sendbyte(':');
+  83   3                  UART5_Sendbyte((real_time.sec / 10) + '0');
+  84   3                  UART5_Sendbyte((real_time.sec % 10) + '0');
+  85   3                  UART5_SendStr(" | ", 3);
+  86   3                  
+  87   3                  // --- 2. NOVO: CITANJE ADC0 I SLANJE ---
+  88   3                  // Citanje kanala 0 (ADC0)
+  89   3                  if(ADC_Read_Raw(1, &adc0_raw_val) == 0) // Promenjeno na kanal 1
+  90   3                  {
+  91   4                      UART5_SendStr(" | ADC1 Raw: ", 13);
+  92   4                      
+  93   4                      // Ispis sirove vrednosti (0 - 65535)
+  94   4                      // Posto je vrednost > 4095, ovo je sigurno 16-bitni podatak
+  95   4                      UART5_Sendbyte((adc0_raw_val / 10000) + '0');
+  96   4                      UART5_Sendbyte(((adc0_raw_val % 10000) / 1000) + '0');
+  97   4                      UART5_Sendbyte(((adc0_raw_val % 1000) / 100) + '0');
+  98   4                      UART5_Sendbyte(((adc0_raw_val % 100) / 10) + '0');
+  99   4                      UART5_Sendbyte((adc0_raw_val % 10) + '0');
+ 100   4                      
+ 101   4                      // --- ISPRAVKA FORMULE ---
+ 102   4                      // Buduci da dobijate vrednost 7834 (sto je vece od 4095), hardver radi u 16-bitnom rezimu
+             -.
+ 103   4                      // Moramo deliti sa 65535 umesto sa 4095.
+ 104   4                      // Formula: Napon(mV) = (Raw * 3300) / 65535
+ 105   4                      
+ 106   4                      adc0_mv_val = ((u32)adc0_raw_val * 3300) / 65535;
+ 107   4                      
+ 108   4                      UART5_SendStr(" (", 2);
+ 109   4                      // Ispis napona (do 3300 mV, tj. 3.30V)
+ 110   4                      UART5_Sendbyte(((adc0_mv_val / 1000) % 10) + '0');
+ 111   4                      UART5_Sendbyte('.');
+ 112   4                      UART5_Sendbyte(((adc0_mv_val / 100) % 10) + '0');
+ 113   4                      UART5_Sendbyte(((adc0_mv_val / 10) % 10) + '0');
+ 114   4                      UART5_Sendbyte('V');
+ 115   4                      UART5_Sendbyte(')');
+C51 COMPILER V9.60.0.0   MAIN                                                              12/05/2025 16:48:10 PAGE 3   
 
- 117   3                  UART5_Sendbyte(((my_variable / 10) % 10) + '0');  // Tens digit
- 118   3                  UART5_Sendbyte((my_variable % 10) + '0');         // Units digit
- 119   3      
- 120   3                  UART5_SendStr("]\r\n", 3); // End of line
- 121   3      
- 122   3                  
- 123   3                  button_val = 0;
- 124   3                  write_dgus_vp(0x1200, &button_val, 2);
- 125   3                  // FORCE RESET LOOP: Keep writing 0 until the hardware acknowledges it
- 126   3                  // This prevents the "machine gun" effect if a single write is missed.
- 127   3      //            do
- 128   3      //            {
- 129   3      //                write_dgus_vp(0x1200, &button_val, 2);
- 130   3      //                delay_ms(10); // Small wait for hardware
- 131   3      //                read_dgus_vp(0x1200, &button_val, 2); // Verify
- 132   3      //            } while(button_val == 1); // Retry if still 1
- 133   3      
- 134   3                  // Simple cooldown delay to prevent multiple triggers during a single press
- 135   3      //            delay_ms(200);
- 136   3              }
- 137   2          }
- 138   1      }
+ 116   4                  }
+ 117   3                  else
+ 118   3                  {
+ 119   4                      UART5_SendStr(" | ADC1 Error", 13);
+ 120   4                  }
+ 121   3                  UART5_SendStr("\r\n", 2);
+ 122   3              }
+ 123   2      
+ 124   2              // --- UART RX Handling ---
+ 125   2              // Check if there is new data in the UART receive buffer
+ 126   2              if(Rx_Head != Rx_Tail)
+ 127   2              {
+ 128   3                  // Read one byte from the circular buffer
+ 129   3                  u8 c = Rx_Buffer[Rx_Tail];
+ 130   3                  Rx_Tail = (Rx_Tail + 1) & 0x1F; // Increment tail with wrap-around
+ 131   3      
+ 132   3                  // Process Numeric Commands
+ 133   3                  // Check if the received character is a digit '0'-'9'
+ 134   3                  if(c >= '0' && c <= '9')
+ 135   3                  {
+ 136   4                      u16 val = (u16)(c - '0'); // Convert ASCII to integer
+ 137   4                      // Write the value to DGUS Variable Pointer (VP) address 0x1100
+ 138   4                      write_dgus_vp(0x2040, &val, 2);
+ 139   4      
+ 140   4                      // Echo back valid input
+ 141   4                      UART5_SendStr("written number: ", 16);
+ 142   4                      UART5_Sendbyte(c);
+ 143   4                      UART5_SendStr("\r\n", 2);
+ 144   4                  }
+ 145   3                  else
+ 146   3                  {
+ 147   4                      // Echo back invalid input
+ 148   4                      UART5_SendStr("out of limit\r\n", 14);
+ 149   4                  }
+ 150   3              }
+ 151   2      
+ 152   2              // --- Button Handling ---
+ 153   2              // Read the status of the button at VP address 0x1200.
+ 154   2              // The display is expected to write '1' to this address when the button is pressed.
+ 155   2              read_dgus_vp(0x1200, &button_val, 2);
+ 156   2      
+ 157   2              if(button_val == 1)
+ 158   2              {
+ 159   3                  my_variable++; // Increment the counter
+ 160   3      
+ 161   3                  // Send debug information via UART
+ 162   3                  UART5_SendStr("Variable updated [new value:", 28);
+ 163   3      
+ 164   3                  // Convert the 3-digit counter value to ASCII and send character by character
+ 165   3                  UART5_Sendbyte(((my_variable / 100) % 10) + '0'); // Hundreds digit
+ 166   3                  UART5_Sendbyte(((my_variable / 10) % 10) + '0');  // Tens digit
+ 167   3                  UART5_Sendbyte((my_variable % 10) + '0');         // Units digit
+ 168   3      
+ 169   3                  UART5_SendStr("]\r\n", 3); // End of line
+ 170   3      
+ 171   3      
+ 172   3                  button_val = 0;
+ 173   3                  write_dgus_vp(0x1200, &button_val, 2);
+ 174   3                  // FORCE RESET LOOP: Keep writing 0 until the hardware acknowledges it
+ 175   3                  // This prevents the "machine gun" effect if a single write is missed.
+ 176   3      //            do
+ 177   3      //            {
+C51 COMPILER V9.60.0.0   MAIN                                                              12/05/2025 16:48:10 PAGE 4   
+
+ 178   3      //                write_dgus_vp(0x1200, &button_val, 2);
+ 179   3      //                delay_ms(10); // Small wait for hardware
+ 180   3      //                read_dgus_vp(0x1200, &button_val, 2); // Verify
+ 181   3      //            } while(button_val == 1); // Retry if still 1
+ 182   3      
+ 183   3                  // Simple cooldown delay to prevent multiple triggers during a single press
+ 184   3      //            delay_ms(200);
+ 185   3              }
+ 186   2          }
+ 187   1      }
+*** WARNING C280 IN LINE 37 OF main.c: 'buff': unreferenced local variable
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =    527    ----
-   CONSTANT SIZE    =     90    ----
-   XDATA SIZE       =      6       3
+   CODE SIZE        =    968    ----
+   CONSTANT SIZE    =    125    ----
+   XDATA SIZE       =     15       7
    PDATA SIZE       =   ----    ----
    DATA SIZE        =   ----    ----
    IDATA SIZE       =   ----    ----
@@ -163,4 +216,4 @@ MODULE INFORMATION:   STATIC OVERLAYABLE
 END OF MODULE INFORMATION.
 
 
-C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

@@ -17,30 +17,48 @@ Library Manager: LIB51.exe V4.30.1.0
 Hex Converter:   OH51.exe V2.7.0.0
 CPU DLL:         S8051.DLL V3.122.0.0
 Dialog DLL:      DCore51.DLL V2.81.7.0
-    Target DLL: DWIN\BIN\ag8051.dll
+Target DLL:      DWIN\BIN\ag8051.dll V1.00
 Dialog DLL:      TCore51.DLL V2.66.4.0
  
 <h2>Project:</h2>
-C:\ProjektiOtvoreni\DWIN_Test\demo\T5L_KEIL\Demo.uvproj
-Project File Date:  12/04/2025
+C:\ProjektiOtvoreni\DWIN_Test\KEIL\Demo.uvproj
+Project File Date:  12/05/2025
 
 <h2>Output:</h2>
 Rebuild target 'Target 1'
 compiling main.c...
+main.c(37): warning C280: 'buff': unreferenced local variable
 assembling STARTUP_M5.A51...
 compiling sys.c...
 compiling uart.c...
+compiling DWIN_PERIPHERALS.c...
 linking...
-Program Size: data=15.0 xdata=91 code=2588
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_DELAY_MS?SYS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_PWM0_SET_CONFIG?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_PWM0_SET_DUTY?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_PWM1_SET_CONFIG?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_PWM1_SET_DUTY?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?LED_TEST_SET_50_PERCENT?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?RTC_SET_TIME_DGUS?DWIN_PERIPHERALS
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_RTC_READ_TIME_DGUS?DWIN_PERIPHERALS
+Program Size: data=15.0 xdata=124 code=4268
 creating hex file from ".\obj\T5L51"...
 User command #1: .\obj\1.bat
-C:\ProjektiOtvoreni\DWIN_Test\demo\T5L_KEIL>cd obj 
-C:\ProjektiOtvoreni\DWIN_Test\demo\T5L_KEIL\obj>srec_cat.exe T5L51.hex -Intel -o T5L51.bin -Binary  
-srec_cat: T5L51.hex: 8: warning: data records not in strictly ascending order
-    (expected >= 0x0A15, got 0x0100)
-C:\ProjektiOtvoreni\DWIN_Test\demo\T5L_KEIL\obj>echo.
-".\obj\T5L51" - 0 Error(s), 0 Warning(s).
-Build Time Elapsed:  00:00:00
+C:\ProjektiOtvoreni\DWIN_Test\KEIL>cd obj 
+C:\ProjektiOtvoreni\DWIN_Test\KEIL\obj>srec_cat.exe T5L51.hex -Intel -o T5L51.bin -Binary  
+srec_cat: T5L51.hex: 12: warning: data records not in strictly ascending order
+    (expected >= 0x0EF7, got 0x0100)
+C:\ProjektiOtvoreni\DWIN_Test\KEIL\obj>echo.
+".\obj\T5L51" - 0 Error(s), 9 Warning(s).
+Build Time Elapsed:  00:00:01
 </pre>
 </body>
 </html>

@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 1   
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE SYS
@@ -19,383 +19,510 @@ line level    source
    9          #include "sys.h"
   10          #include "uart.h"
   11          #include "string.h"
-  12          
-  13          // --- Lookup Tables for Calendar Calculation ---
-  14          const u8 code table_week[12] = {0,3,3,6,1,4,6,2,5,0,3,5};
-  15          const u8 code mon_table[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-  16          const u8 code time_set_init[6] = {19,5,1,12,00,00};
-  17          
-  18          // --- System Global Variables ---
-  19          /** @brief System tick counter, incremented every ms by Timer 0 ISR. Volatile for safe ISR access. */
-  20          volatile u16 data Wait_Count = 0;          
-  21          /** @brief Internal counter for the RTC tick, used to measure 1-second intervals. */
-  22          static u16 data SysTick_RTC = 0;  
-  23          /** @brief Countdown variable for the `delay_ms` function. */
-  24          static u16 data SysTick = 0;      
-  25          /** @brief Global structure holding the current real-time clock time. */
-  26          rtc_time real_time;             
-  27          /** @brief Flag set by the RTC ISR every second to signal the main loop to update the display. */
-  28          volatile u16 Second_Updata_Flag = 0;       
-  29          /** @brief Buffer to hold time values for display purposes. */
-  30          u16 time_display[7] = {0};       
-  31          
-  32          /**
-  33           * @brief Initialize CPU Core Registers
-  34           * @details Sets up Interrupts, GPIO modes, UARTs, and Timers according to T5L specs.
-  35           */
-  36          void INIT_CPU(void)
-  37          {
-  38   1          EA = 0;           
-  39   1          RS0 = 0;          
-  40   1          RS1 = 0;
-  41   1          PORTDRV = 0x01;   
-  42   1          IEN0 = 0x00;      
-  43   1          IEN1 = 0x00;
-  44   1          IEN2 = 0x00;
-  45   1          IP0 = 0x00;       
-  46   1          IP1 = 0x00;
-  47   1          
-  48   1          // Disable Watchdog (WDT) [cite: 1810]
-  49   1          MUX_SEL &= 0xFD;  
-  50   1      
-  51   1          // Initialize Ports to Input Mode (High Impedance/Weak Pull-up equivalent)
-  52   1          P0 = 0xFF; P1 = 0xFF; P2 = 0xFF; P3 = 0xFF;
-  53   1          
-  54   1          // Configure Output Modes (1=Push-Pull) [cite: 1986]
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 2   
+  12          #include <intrins.h>
+  13          
+  14          // --- Lookup Tables for Calendar Calculation ---
+  15          const u8 code table_week[12] = {0,3,3,6,1,4,6,2,5,0,3,5};
+  16          const u8 code mon_table[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  17          const u8 code time_set_init[6] = {19,5,1,12,00,00};
+  18          
+  19          // --- System Global Variables ---
+  20          /** @brief System tick counter, incremented every ms by Timer 0 ISR. Volatile for safe ISR access. */
+  21          volatile u16 data Wait_Count = 0;          
+  22          /** @brief Internal counter for the RTC tick, used to measure 1-second intervals. */
+  23          static u16 data SysTick_RTC = 0;  
+  24          /** @brief Countdown variable for the `delay_ms` function. */
+  25          static u16 data SysTick = 0;      
+  26          /** @brief Global structure holding the current real-time clock time. */
+  27          rtc_time real_time;             
+  28          /** @brief Flag set by the RTC ISR every second to signal the main loop to update the display. */
+  29          volatile u16 Second_Updata_Flag = 0;       
+  30          /** @brief Buffer to hold time values for display purposes. */
+  31          u16 time_display[7] = {0};       
+  32          
+  33          /**
+  34           * @brief Initialize CPU Core Registers
+  35           * @details Sets up Interrupts, GPIO modes, UARTs, and Timers according to T5L specs.
+  36           *          Includes robust defaults for Memory Pointers and Watchdog from factory demo.
+  37           */
+  38          void INIT_CPU(void)
+  39          {
+  40   1          EA = 0;           
+  41   1          RS0 = 0;          
+  42   1          RS1 = 0;
+  43   1          
+  44   1          // --- Clock & Memory Configuration (Factory Defaults) ---
+  45   1          CKCON = 0x00;           // CPU Clock Control (Default)
+  46   1          DPC = 0x00;             // Data Pointer Control (Default)
+  47   1          PAGESEL = 0x01;         // Code Memory Page Select
+  48   1          D_PAGESEL = 0x02;       // Data Memory Page Select (RAM 0x8000-0xFFFF)
+  49   1      
+  50   1          // --- Peripheral Multiplexing & Watchdog ---
+  51   1          // MUX_SEL: Bit 6=UART2 En, Bit 5=UART3 En, Bit 1=WDT En, Bit 0=WDT Feed
+  52   1          // Ensure Watchdog is OFF during init (Factory Default: 0x60 enables UART2/3)
+  53   1          WDT_OFF(); 
+  54   1      
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 2   
 
-  55   1          P0MDOUT = 0x10; 
-  56   1          P1MDOUT = 0x00; 
-  57   1          P2MDOUT = 0x00; 
-  58   1          P3MDOUT = 0x00;
-  59   1      
-  60   1          // UART0 (Standard 8051 UART) Configuration
-  61   1          ADCON = 0x80;     
-  62   1          SCON0 = 0x50;     
-  63   1          SREL0H = 0x03;    
-  64   1          SREL0L = 0xE4;    
-  65   1          
-  66   1          // UART4 Configuration
-  67   1          SCON2T = 0x80;    
-  68   1          SCON2R = 0x80;    
-  69   1          BODE2_DIV_H = 0x00; 
-  70   1          BODE2_DIV_L = 0xE0;
-  71   1          
-  72   1          // Timer Configuration
-  73   1          TMOD = 0x11;      
-  74   1          TH0 = 0x00; TL0 = 0x00; TR0 = 0x00; 
-  75   1          TH1 = 0x00; TL1 = 0x00; TR1 = 0x00; 
-  76   1          
-  77   1          // Timer 2 Configuration (16-bit Auto-reload) [cite: 1925]
-  78   1          T2CON = 0x70; 
-  79   1          TH2 = 0x00; TL2 = 0x00; 
-  80   1          TRL2H = 0xBC; TRL2L = 0xCD;
-  81   1      }
-  82          
-  83          /**
-  84           * @brief Initialize GPIO Port Directions.
-  85           * @details Configures specific pins on P0, P1, and P2 as push-pull outputs.
-  86           */
-  87          void PORT_Init(void)
-  88          {
-  89   1          // Specific GPIO setup for the project
-  90   1          P0MDOUT |= 0x02; 
-  91   1          P1MDOUT |= 0x1E; 
-  92   1          P2MDOUT |= 0x02; 
-  93   1      }
-  94          
-  95          /**
-  96           * @brief Initialize the software Real-Time Clock.
-  97           * @details Loads the `real_time` structure with a default compile-time date and time.
-  98           */
-  99          void RTC_Init(void)
- 100          {
- 101   1          // Load initial time values
- 102   1          real_time.year = time_set_init[0];
- 103   1          real_time.month = time_set_init[1];
- 104   1          real_time.day = time_set_init[2];
- 105   1          real_time.hour = time_set_init[3];
- 106   1          real_time.min = time_set_init[4];
- 107   1          real_time.sec = time_set_init[5];
- 108   1      }
- 109          
- 110          /**
- 111           * @brief Initialize Timer 0 for System Tick.
- 112           * @details Configures Timer 0 to generate an interrupt every 1ms, which serves as the main system tick.
- 113           */
- 114          void T0_Init(void)
- 115          {
- 116   1          // System Tick Timer
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 3   
+  55   1          PORTDRV = 0x01;   // Drive Strength +/- 8mA
+  56   1          IEN0 = 0x00;      
+  57   1          IEN1 = 0x00;
+  58   1          IEN2 = 0x00;
+  59   1          IP0 = 0x00;       
+  60   1          IP1 = 0x00;
+  61   1          
+  62   1          // Initialize Ports to Input Mode (High Impedance/Weak Pull-up equivalent)
+  63   1          P0 = 0xFF; P1 = 0xFF; P2 = 0xFF; P3 = 0xFF;
+  64   1          
+  65   1          // Configure Output Modes (1=Push-Pull) [cite: 1986]
+  66   1          // Note: P0.4 (UART2 TX) set to Push-Pull (0x10). 
+  67   1          // Specific project pins handled in PORT_Init().
+  68   1          P0MDOUT = 0x10; 
+  69   1          P1MDOUT = 0x00; 
+  70   1          P2MDOUT = 0x00; 
+  71   1          P3MDOUT = 0x00;
+  72   1      
+  73   1          // --- UART0 (Standard 8051 UART / UART2 in DWIN) Configuration ---
+  74   1          // 115200 8N1 @ ~206MHz
+  75   1          ADCON = 0x80;     
+  76   1          SCON0 = 0x50;     
+  77   1          SREL0H = 0x03;    
+  78   1          SREL0L = 0xE4;    
+  79   1          
+  80   1          // --- UART3 Configuration (Optional/Factory Default) ---
+  81   1          /*
+  82   1          SCON1 = 0x50;
+  83   1          SREL1H = 0x03; SREL1L = 0xC8;
+  84   1          */
+  85   1      
+  86   1          // --- UART4 Configuration ---
+  87   1          SCON2T = 0x80;    
+  88   1          SCON2R = 0x80;    
+  89   1          BODE2_DIV_H = 0x00; 
+  90   1          BODE2_DIV_L = 0xE0;
+  91   1      
+  92   1          // --- UART5 Configuration ---
+  93   1          // (See UART5_Init in uart.c for active configuration)
+  94   1          
+  95   1          // Timer Configuration
+  96   1          TMOD = 0x11;      
+  97   1          TH0 = 0x00; TL0 = 0x00; TR0 = 0x00; 
+  98   1          TH1 = 0x00; TL1 = 0x00; TR1 = 0x00; 
+  99   1          TCON = 0x05; // External Interrupt Edge Trigger (Factory Default)
+ 100   1          
+ 101   1          // Timer 2 Configuration (16-bit Auto-reload) [cite: 1925]
+ 102   1          T2CON = 0x70; 
+ 103   1          TH2 = 0x00; TL2 = 0x00; 
+ 104   1          TRL2H = 0xBC; TRL2L = 0xCD; // 1ms Reload Value
+ 105   1      }
+ 106          
+ 107          /**
+ 108           * @brief Initialize GPIO Port Directions.
+ 109           * @details Configures specific pins on P0, P1, and P2 as push-pull outputs.
+ 110           */
+ 111          void PORT_Init(void)
+ 112          {
+ 113   1          // Specific GPIO setup for the project
+ 114   1          P0MDOUT |= 0x02; // P0.1 (RS485 EN)
+ 115   1          
+ 116   1          // P1: Set to Push-Pull for LED/Counter demo
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 3   
 
- 117   1          TMOD |= 0x01;         
- 118   1          TH0 = T1MS >> 8;        
- 119   1          TL0 = T1MS;           
- 120   1          ET0 = 1;              
- 121   1          EA = 1;               
- 122   1          TR0 = 1;              
- 123   1      }
- 124          
- 125          /**
- 126           * @brief Initialize Timer 1 for RTC Tick.
- 127           * @details Configures Timer 1 to generate a 1ms interrupt used for the software RTC counting.
- 128           */
- 129          void T1_Init(void)
- 130          {
- 131   1          // RTC Tick Timer
- 132   1          TMOD |= 0x10;        
- 133   1          TH1 = T1MS >> 8;        
- 134   1          TL1 = T1MS;           
- 135   1          ET1 = 1;              
- 136   1          EA = 1;               
- 137   1          TR1 = 1;              
- 138   1      }
- 139          
- 140          // =============================================================================
- 141          //  UNIVERSAL DGUS MEMORY ACCESS FUNCTIONS (FIXED)
- 142          // =============================================================================
- 143          
- 144          /**
- 145           * @brief Write data to DGUS Variable Pointer (VP) memory.
- 146           * @details Handles 16-bit to 32-bit address mapping and prevents overlap using RAMMODE masking.
- 147           * Waits for hardware completion signal (APP_EN = 0).
- 148           * @param addr 16-bit VP Address (e.g., 0x2010)
- 149           * @param vbuf Pointer to data buffer
- 150           * @param len Length of data in bytes (1, 2, or 4)
- 151           */
- 152          void write_dgus_vp(u32 addr, void* vbuf, u16 len)
- 153          {
- 154   1          u8* buf = (u8*)vbuf;
- 155   1          u32 OS_addr = addr >> 1; // Convert 16-bit VP addr to 32-bit OS slot addr
- 156   1          u8 is_odd = addr & 0x01; // Check if VP address is Odd
- 157   1          u8 mask = 0x00;          // Mask for RAMMODE to select specific bytes
- 158   1      
- 159   1          // 1. Set OS CPU Address Registers 
- 160   1          ADR_H = (u8)(OS_addr >> 16);
- 161   1          ADR_M = (u8)(OS_addr >> 8);
- 162   1          ADR_L = (u8)OS_addr;
- 163   1          ADR_INC = 0x00; // Disable auto-increment for single atomic writes
- 164   1      
- 165   1          // 2. Load Data registers and build Mask
- 166   1          // DATA3/DATA2 = Even VP Address (High Word of OS Slot)
- 167   1          // DATA1/DATA0 = Odd VP Address (Low Word of OS Slot)
- 168   1          
- 169   1          if(!is_odd) // --- EVEN ADDRESS (e.g. 0x2010, 0x2020) ---
- 170   1          {
- 171   2              if(len > 0) { DATA3 = *buf++; mask |= 0x08; } // Bit 3 Enable
- 172   2              if(len > 1) { DATA2 = *buf++; mask |= 0x04; } // Bit 2 Enable
- 173   2              // If writing 4 bytes (Long Int) to an Even Address, fill the rest
- 174   2              if(len > 2) { DATA1 = *buf++; mask |= 0x02; } // Bit 1 Enable
- 175   2              if(len > 3) { DATA0 = *buf++; mask |= 0x01; } // Bit 0 Enable
- 176   2          }
- 177   1          else // --- ODD ADDRESS (e.g. 0x2011) ---
- 178   1          {
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 4   
+ 117   1          // We configure ALL P1 pins as Output to ensure the main loop counter works on all 8 bits.
+ 118   1          // Note: If AD1 is physically P1.1, reading it while driving it as Output might return the Output stat
+             -e.
+ 119   1          // However, per user request, we treat them as separate/independent.
+ 120   1          P1MDOUT = 0xFF; 
+ 121   1          // P1 |= 0xEA; // Removed Input High-Z forcing
+ 122   1      
+ 123   1          // P2: Set P2.0 to Push-Pull for PWM (1kHz)
+ 124   1          P2MDOUT |= 0x03; // P2.0 (PWM) + P2.1 (Original)
+ 125   1      }
+ 126          
+ 127          /**
+ 128           * @brief Initialize the software Real-Time Clock.
+ 129           * @details Loads the `real_time` structure with a default compile-time date and time.
+ 130           */
+ 131          void RTC_Init(void)
+ 132          {
+ 133   1          // Load initial time values
+ 134   1          real_time.year = time_set_init[0];
+ 135   1          real_time.month = time_set_init[1];
+ 136   1          real_time.day = time_set_init[2];
+ 137   1          real_time.hour = time_set_init[3];
+ 138   1          real_time.min = time_set_init[4];
+ 139   1          real_time.sec = time_set_init[5];
+ 140   1      }
+ 141          
+ 142          /**
+ 143           * @brief Initialize Timer 0 for System Tick.
+ 144           * @details Configures Timer 0 to generate an interrupt every 1ms, which serves as the main system tick.
+ 145           */
+ 146          void T0_Init(void)
+ 147          {
+ 148   1          // System Tick Timer
+ 149   1          TMOD |= 0x01;         
+ 150   1          TH0 = T1MS >> 8;        
+ 151   1          TL0 = T1MS;           
+ 152   1          ET0 = 1;              
+ 153   1          EA = 1;               
+ 154   1          TR0 = 1;              
+ 155   1      }
+ 156          
+ 157          /**
+ 158           * @brief Initialize Timer 1 for RTC Tick.
+ 159           * @details Configures Timer 1 to generate a 1ms interrupt used for the software RTC counting.
+ 160           */
+ 161          void T1_Init(void)
+ 162          {
+ 163   1          // RTC Tick Timer
+ 164   1          TMOD |= 0x10;        
+ 165   1          TH1 = T1MS >> 8;        
+ 166   1          TL1 = T1MS;           
+ 167   1          ET1 = 1;              
+ 168   1          EA = 1;               
+ 169   1          TR1 = 1;              
+ 170   1      }
+ 171          
+ 172          /**
+ 173           * @brief Initialize Timer 2.
+ 174           * @details Configures Timer 2 for 500us interrupts to generate 1kHz PWM on P2.0.
+ 175           *          500us High + 500us Low = 1ms Period = 1kHz.
+ 176           */
+ 177          void T2_Init(void)
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 4   
 
- 179   2              // Odd address starts at lower half of the 32-bit slot
- 180   2              if(len > 0) { DATA1 = *buf++; mask |= 0x02; } // Bit 1 Enable
- 181   2              if(len > 1) { DATA0 = *buf++; mask |= 0x01; } // Bit 0 Enable
- 182   2          }
- 183   1      
- 184   1          // 3. Execute Write Command
- 185   1          if(mask != 0)
- 186   1          {
- 187   2              // RAMMODE: Bit 7 (1=Request) | Mask (Bits 3-0 for Byte Enables) 
- 188   2              RAMMODE = 0x80 | mask; 
- 189   2              
- 190   2              APP_EN = 1;         // Trigger Hardware Access 
- 191   2              while(APP_EN);      // WAIT for Hardware to clear APP_EN (Done) 
- 192   2              
- 193   2              RAMMODE = 0x00;     // Release Access
- 194   2          }
- 195   1      }
- 196          
- 197          /**
- 198           * @brief Read data from DGUS Variable Pointer (VP) memory.
- 199           * @details Reads the full 32-bit slot and extracts requested bytes based on alignment.
- 200           * @param addr 16-bit VP Address
- 201           * @param vbuf Pointer to destination buffer
- 202           * @param len Length of data in bytes
- 203           */
- 204          void read_dgus_vp(u32 addr, void* vbuf, u16 len)
- 205          {
- 206   1          u8* buf = (u8*)vbuf;
- 207   1          u32 OS_addr = addr >> 1;
- 208   1          u8 is_odd = addr & 0x01;
- 209   1      
- 210   1          // 1. Set OS CPU Address Registers
- 211   1          ADR_H = (u8)(OS_addr >> 16);
- 212   1          ADR_M = (u8)(OS_addr >> 8);
- 213   1          ADR_L = (u8)OS_addr;
- 214   1          ADR_INC = 0x00;
- 215   1      
- 216   1          // 2. Configure for Read
- 217   1          // RAMMODE: Bit 7 (Request) | Bit 5 (Read Mode=1) | 0x0F (Enable all bytes for reading)
- 218   1          // 0x80 | 0x20 | 0x0F = 0xAF
- 219   1          RAMMODE = 0xAF; 
- 220   1      
- 221   1          // 3. Execute Read Command
- 222   1          APP_EN = 1;         // Trigger Hardware Access 
- 223   1          while(APP_EN);      // WAIT for Hardware to clear APP_EN (Done) 
- 224   1      
- 225   1          // 4. Extract Data from Registers
- 226   1          if(!is_odd) // --- EVEN ADDRESS ---
- 227   1          {
- 228   2              if(len > 0) *buf++ = DATA3;
- 229   2              if(len > 1) *buf++ = DATA2;
- 230   2              if(len > 2) *buf++ = DATA1;
- 231   2              if(len > 3) *buf++ = DATA0;
- 232   2          }
- 233   1          else // --- ODD ADDRESS ---
- 234   1          {
- 235   2              if(len > 0) *buf++ = DATA1;
- 236   2              if(len > 1) *buf++ = DATA0;
- 237   2          }
- 238   1          
- 239   1          RAMMODE = 0x00; // Release Access
- 240   1      }
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 5   
+ 178          {
+ 179   1          T2CON = 0x70;       // 16-bit Auto-reload
+ 180   1          TH2 = 0x00;
+ 181   1          TL2 = 0x00;
+ 182   1          
+ 183   1          // Reload value for 500us (17.2032 MHz clock)
+ 184   1          // 65536 - (17203200 * 0.0005) = 56934 = 0xDE66
+ 185   1          TRL2H = 0xDE;       
+ 186   1          TRL2L = 0x66;       
+ 187   1          
+ 188   1          IEN0 |= 0x20;       // Enable Timer 2 Interrupt (ET2)
+ 189   1          TR2 = 1;            // Start Timer 2
+ 190   1      }
+ 191          
+ 192          /**
+ 193           * @brief Timer 2 Interrupt Service Routine.
+ 194           * @details Toggles P2.0 every 500us to create a 1kHz square wave (50% Duty Cycle).
+ 195           */
+ 196          void T2_ISR_PC(void) interrupt 5
+ 197          {
+ 198   1          TF2 = 0;        // Clear Overflow Flag (Hardware should do this in auto-reload, but safe to ensure)
+ 199   1          P2_0 = !P2_0;   // Toggle P2.0
+ 200   1      }
+ 201          
+ 202          // =============================================================================
+ 203          //  UNIVERSAL DGUS MEMORY ACCESS FUNCTIONS (OPTIMIZED)
+ 204          // =============================================================================
+ 205          
+ 206          /**
+ 207           * @brief Write data to DGUS Variable Pointer (VP) memory.
+ 208           * @details Optimized for DWIN T5L. Handles atomic 32-bit accesses, odd/even alignment,
+ 209           *          and supports multi-byte buffers.
+ 210           *          CRITICAL: Disables Global Interrupts (EA) during hardware access to prevent corruption.
+ 211           * @param addr 16-bit VP Address
+ 212           * @param vbuf Pointer to source buffer
+ 213           * @param len Length of data in bytes
+ 214           */
+ 215          void write_dgus_vp(u32 addr, void* vbuf, u16 len)
+ 216          {
+ 217   1          u8* buf = (u8*)vbuf;
+ 218   1          u32 OS_addr = addr >> 1;
+ 219   1          u8 is_odd = addr & 0x01;
+ 220   1          u8 mask;
+ 221   1          
+ 222   1          EA = 0; // Disable Interrupts for Atomic Access
+ 223   1      
+ 224   1          // 1. Set Initial Address
+ 225   1          ADR_H = (u8)(OS_addr >> 16);
+ 226   1          ADR_M = (u8)(OS_addr >> 8);
+ 227   1          ADR_L = (u8)OS_addr;
+ 228   1          ADR_INC = 0x01; // Enable Auto-Increment for bulk writes
+ 229   1      
+ 230   1          // 2. Handle Start Alignment (Odd Address Case)
+ 231   1          if(is_odd && len > 0)
+ 232   1          {
+ 233   2              // For Odd Address, we write to the Lower Half (DATA1/DATA0)
+ 234   2              // We temporarily Disable Auto-Increment to stay on the current word for this partial write
+ 235   2              ADR_INC = 0x00; 
+ 236   2              
+ 237   2              mask = 0x00;
+ 238   2              if(len > 0) { DATA1 = *buf++; mask |= 0x02; len--; }
+ 239   2              if(len > 0) { DATA0 = *buf++; mask |= 0x01; len--; }
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 5   
 
- 241          
- 242          // --- Interrupt Service Routines & Logic ---
- 243          
- 244          /**
- 245           * @brief Timer 0 Interrupt Service Routine.
- 246           * @details This ISR is triggered every 1ms. It reloads the timer, increments the main system
- 247           *          `Wait_Count`, and decrements the `SysTick` counter for `delay_ms`.
- 248           */
- 249          void T0_ISR_PC(void) interrupt 1
- 250          {
- 251   1          TH0 = T1MS >> 8;    
- 252   1          TL0 = T1MS;       
- 253   1          Wait_Count++;   
- 254   1          if(SysTick > 0) SysTick--;
- 255   1      }
- 256          
- 257          /**
- 258           * @brief Calculates the day of the week from a given date.
- 259           * @param year The year (e.g., 24 for 2024).
- 260           * @param month The month (1-12).
- 261           * @param day The day of the month (1-31).
- 262           * @return The day of the week, where 0 is Monday and 6 is Sunday.
- 263           * @details This function implements a variation of Zeller's congruence to determine
- 264           *          the day of the week. It uses a lookup table for month offsets.
- 265           */
- 266          u8 RTC_Get_Week(u8 year, u8 month, u8 day)
- 267          {
- 268   1          u16 temp;
- 269   1          u16 year_real = (u16)year + 2000;
- 270   1          u8 yearH = year_real / 100;
- 271   1          u8 yearL = year_real % 100;
- 272   1          
- 273   1          if (yearH > 19) yearL += 100;
- 274   1          
- 275   1          temp = yearL + yearL / 4;
- 276   1          temp = temp % 7;
- 277   1          temp = temp + day + table_week[month - 1];
- 278   1          
- 279   1          if (yearL % 4 == 0 && month < 3) temp--;
- 280   1          
- 281   1          temp %= 7;
- 282   1          if(temp == 0) return 6;
- 283   1          else return temp - 1;
- 284   1      }
- 285          
- 286          /**
- 287           * @brief Updates RTC logic and synchronizes with DGUS Display.
- 288           * @details Called from main loop. Uses non-overlapping addresses 
- 289           * (0x2010, 0x2020, 0x2030) as confirmed working.
- 290           */
- 291          void Time_Update(void)
- 292          {
- 293   1          u16 hour_val, min_val, sec_val;
- 294   1      
- 295   1          MUX_SEL |= 0x01; // Feed Watchdog (Reset WDT) [cite: 1810]
- 296   1          
- 297   1          if(Second_Updata_Flag == 1)
- 298   1          {
- 299   2              real_time.week = RTC_Get_Week(real_time.year, real_time.month, real_time.day);
- 300   2              
- 301   2              // Prepare local variables (u16)
- 302   2              hour_val = real_time.hour;
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 6   
+ 240   2              
+ 241   2              if(mask)
+ 242   2              {
+ 243   3                  RAMMODE = 0x80 | mask; // Write Request + Byte Enables
+ 244   3                  APP_EN = 1; while(APP_EN); // Trigger & Wait
+ 245   3              }
+ 246   2      
+ 247   2              // Move to next OS Word (Even) manually since we disabled Auto-Inc
+ 248   2              // Or just re-enable Auto-Inc and dummy write? No, cleaner to just increment OS_addr.
+ 249   2              // Actually, simpler: Re-enable Auto-Inc for the main loop.
+ 250   2              // Since we wrote to the "Lower" half of the current address, the next write MUST be to the "Next"
+             - address.
+ 251   2              // We need to manually increment the hardware address registers for the loop.
+ 252   2              // (OS_addr + 1)
+ 253   2              OS_addr++;
+ 254   2              ADR_H = (u8)(OS_addr >> 16);
+ 255   2              ADR_M = (u8)(OS_addr >> 8);
+ 256   2              ADR_L = (u8)OS_addr;
+ 257   2              ADR_INC = 0x01; 
+ 258   2          }
+ 259   1      
+ 260   1          // 3. Main Loop - Write Full Words (4 Bytes)
+ 261   1          while(len >= 4)
+ 262   1          {
+ 263   2              // Optimize: Use Full Write (0x8F) for speed
+ 264   2              RAMMODE = 0x8F; 
+ 265   2              DATA3 = *buf++;
+ 266   2              DATA2 = *buf++;
+ 267   2              DATA1 = *buf++;
+ 268   2              DATA0 = *buf++;
+ 269   2              APP_EN = 1; while(APP_EN);
+ 270   2              len -= 4;
+ 271   2          }
+ 272   1      
+ 273   1          // 4. Handle Remaining Bytes (1-3 bytes)
+ 274   1          if(len > 0)
+ 275   1          {
+ 276   2              // Auto-Increment is ON from loop. The hardware address is pointing to the NEXT word.
+ 277   2              // We just load data and mask correctly.
+ 278   2              mask = 0x00;
+ 279   2              if(len > 0) { DATA3 = *buf++; mask |= 0x08; }
+ 280   2              if(len > 1) { DATA2 = *buf++; mask |= 0x04; }
+ 281   2              if(len > 2) { DATA1 = *buf++; mask |= 0x02; }
+ 282   2              
+ 283   2              RAMMODE = 0x80 | mask;
+ 284   2              APP_EN = 1; while(APP_EN);
+ 285   2          }
+ 286   1      
+ 287   1          RAMMODE = 0x00; // Release Access
+ 288   1          EA = 1;         // Restore Interrupts
+ 289   1      }
+ 290          
+ 291          /**
+ 292           * @brief Read data from DGUS Variable Pointer (VP) memory.
+ 293           * @details Handles atomic 32-bit accesses, odd/even alignment, and supports multi-byte buffers.
+ 294           *          CRITICAL: Disables Global Interrupts (EA) during hardware access.
+ 295           * @param addr 16-bit VP Address
+ 296           * @param vbuf Pointer to destination buffer
+ 297           * @param len Length of data in bytes
+ 298           */
+ 299          void read_dgus_vp(u32 addr, void* vbuf, u16 len)
+ 300          {
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 6   
 
- 303   2              min_val = real_time.min;
- 304   2              sec_val = real_time.sec;
- 305   2      
- 306   2              // --- WRITE TO DGUS VP ---
- 307   2              // Using strict Even addresses spaced out to ensure no overlap.
- 308   2              // Function write_dgus_vp will handle the 2-byte write safely.
- 309   2              
- 310   2              write_dgus_vp(0x2010, &hour_val, 2); 
- 311   2              // No delay needed here with the correct 'while(APP_EN)' check in write_dgus_vp, 
- 312   2              // but keeping small delay is safe for bus stability if desired.
- 313   2              
- 314   2              write_dgus_vp(0x2020, &min_val, 2);  
- 315   2              
- 316   2              write_dgus_vp(0x2030, &sec_val, 2);  
+ 301   1          u8* buf = (u8*)vbuf;
+ 302   1          u32 OS_addr = addr >> 1;
+ 303   1          u8 is_odd = addr & 0x01;
+ 304   1          
+ 305   1          EA = 0; // Disable Interrupts
+ 306   1      
+ 307   1          // 1. Set Initial Address
+ 308   1          ADR_H = (u8)(OS_addr >> 16);
+ 309   1          ADR_M = (u8)(OS_addr >> 8);
+ 310   1          ADR_L = (u8)OS_addr;
+ 311   1          ADR_INC = 0x01; // Enable Auto-Increment
+ 312   1      
+ 313   1          // 2. Handle Start Alignment (Odd Address)
+ 314   1          if(is_odd && len > 0)
+ 315   1          {
+ 316   2              ADR_INC = 0x00; // Disable Auto-Inc for partial read
  317   2              
- 318   2              Second_Updata_Flag = 0;
- 319   2          }
- 320   1      }
- 321          
- 322          /**
- 323           * @brief Timer 1 Interrupt Service Routine.
- 324           * @details This ISR is triggered every 1ms to drive the software RTC. It increments a counter
- 325           *          and, upon reaching 1000ms (1 second), it updates the `real_time` structure and
- 326           *          sets a flag for the main loop to update the display.
- 327           */
- 328          void T1_ISR_PC(void) interrupt 3
- 329          {
- 330   1          TH1 = T1MS >> 8;
- 331   1          TL1 = T1MS;
- 332   1          SysTick_RTC++;
- 333   1          
- 334   1          // 1 Second Heartbeat
- 335   1          if(SysTick_RTC >= 1000)
- 336   1          {
- 337   2              SysTick_RTC = 0;
- 338   2              real_time.sec++;
- 339   2              if(real_time.sec > 59)
- 340   2              {
- 341   3                  real_time.sec = 0;
- 342   3                  real_time.min++;
- 343   3                  if(real_time.min > 59)
- 344   3                  {
- 345   4                      real_time.min = 0;
- 346   4                      real_time.hour++;
- 347   4                      if(real_time.hour > 23)
- 348   4                      {
- 349   5                          real_time.hour = 0;
- 350   5                          real_time.day++;
- 351   5                          // Basic Month/Day logic (simplified)
- 352   5                          if(real_time.day > 28) { 
- 353   6                              // Full calendar logic should go here if needed
- 354   6                          } 
- 355   5                      }
- 356   4                  }
- 357   3              }
- 358   2              Second_Updata_Flag = 1; // Flag to update display in main loop
- 359   2          }
- 360   1      }
- 361          
- 362          /**
- 363           * @brief Provides a blocking delay for a specified number of milliseconds.
- 364           * @details This function uses a global counter `SysTick` which is decremented by the Timer 0 ISR.
-C51 COMPILER V9.60.0.0   SYS                                                               12/04/2025 18:45:23 PAGE 7   
+ 318   2              // Read Mode
+ 319   2              RAMMODE = 0xAF; 
+ 320   2              APP_EN = 1; while(APP_EN);
+ 321   2      
+ 322   2              if(len > 0) { *buf++ = DATA1; len--; }
+ 323   2              if(len > 0) { *buf++ = DATA0; len--; }
+ 324   2              
+ 325   2              // Move to next OS Word
+ 326   2              OS_addr++;
+ 327   2              ADR_H = (u8)(OS_addr >> 16);
+ 328   2              ADR_M = (u8)(OS_addr >> 8);
+ 329   2              ADR_L = (u8)OS_addr;
+ 330   2              ADR_INC = 0x01;
+ 331   2          }
+ 332   1      
+ 333   1          // 3. Main Loop - Read Full Words (4 Bytes)
+ 334   1          while(len >= 4)
+ 335   1          {
+ 336   2              RAMMODE = 0xAF;
+ 337   2              APP_EN = 1; while(APP_EN);
+ 338   2              
+ 339   2              *buf++ = DATA3;
+ 340   2              *buf++ = DATA2;
+ 341   2              *buf++ = DATA1;
+ 342   2              *buf++ = DATA0;
+ 343   2              len -= 4;
+ 344   2          }
+ 345   1      
+ 346   1          // 4. Handle Remaining Bytes
+ 347   1          if(len > 0)
+ 348   1          {
+ 349   2              RAMMODE = 0xAF;
+ 350   2              APP_EN = 1; while(APP_EN);
+ 351   2      
+ 352   2              if(len > 0) *buf++ = DATA3;
+ 353   2              if(len > 1) *buf++ = DATA2;
+ 354   2              if(len > 2) *buf++ = DATA1;
+ 355   2          }
+ 356   1      
+ 357   1          RAMMODE = 0x00;
+ 358   1          EA = 1; // Restore Interrupts
+ 359   1      }
+ 360          
+ 361          // --- Interrupt Service Routines & Logic ---
+ 362          
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 7   
 
- 365           *          It is a "busy-wait" or "cooperative" delay, not a true sleep.
- 366           * @param n The number of milliseconds to delay.
+ 363          /**
+ 364           * @brief Timer 0 Interrupt Service Routine.
+ 365           * @details This ISR is triggered every 1ms. It reloads the timer, increments the main system
+ 366           *          `Wait_Count`, and decrements the `SysTick` counter for `delay_ms`.
  367           */
- 368          //void delay_ms(u16 n)
- 369          //{
- 370          //    SysTick = n;
- 371          //    while(SysTick);
- 372          //}
+ 368          void T0_ISR_PC(void) interrupt 1
+ 369          {
+ 370   1          TH0 = T1MS >> 8;    
+ 371   1          TL0 = T1MS;       
+ 372   1          Wait_Count++;   
+ 373   1          if(SysTick > 0) SysTick--;
+ 374   1      }
+ 375          
+ 376          /**
+ 377           * @brief Calculates the day of the week from a given date.
+ 378           * @param year The year (e.g., 24 for 2024).
+ 379           * @param month The month (1-12).
+ 380           * @param day The day of the month (1-31).
+ 381           * @return The day of the week, where 0 is Monday and 6 is Sunday.
+ 382           * @details This function implements a variation of Zeller's congruence to determine
+ 383           *          the day of the week. It uses a lookup table for month offsets.
+ 384           */
+ 385          u8 RTC_Get_Week(u8 year, u8 month, u8 day)
+ 386          {
+ 387   1          u16 temp;
+ 388   1          u16 year_real = (u16)year + 2000;
+ 389   1          u8 yearH = year_real / 100;
+ 390   1          u8 yearL = year_real % 100;
+ 391   1          
+ 392   1          if (yearH > 19) yearL += 100;
+ 393   1          
+ 394   1          temp = yearL + yearL / 4;
+ 395   1          temp = temp % 7;
+ 396   1          temp = temp + day + table_week[month - 1];
+ 397   1          
+ 398   1          if (yearL % 4 == 0 && month < 3) temp--;
+ 399   1          
+ 400   1          temp %= 7;
+ 401   1          if(temp == 0) return 6;
+ 402   1          else return temp - 1;
+ 403   1      }
+ 404          
+ 405          /**
+ 406           * @brief Updates RTC logic and synchronizes with DGUS Display.
+ 407           * @details Called from main loop. Uses non-overlapping addresses 
+ 408           * (0x2010, 0x2020, 0x2030) as confirmed working.
+ 409           */
+ 410          void Time_Update(void)
+ 411          {
+ 412   1          u16 hour_val, min_val, sec_val;
+ 413   1      
+ 414   1          MUX_SEL |= 0x01; // Feed Watchdog (Reset WDT) [cite: 1810]
+ 415   1          
+ 416   1          if(Second_Updata_Flag == 1)
+ 417   1          {
+ 418   2              real_time.week = RTC_Get_Week(real_time.year, real_time.month, real_time.day);
+ 419   2              
+ 420   2              // Prepare local variables (u16)
+ 421   2              hour_val = real_time.hour;
+ 422   2              min_val = real_time.min;
+ 423   2              sec_val = real_time.sec;
+ 424   2      
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 8   
+
+ 425   2              // --- WRITE TO DGUS VP ---
+ 426   2              // Using strict Even addresses spaced out to ensure no overlap.
+ 427   2              // Function write_dgus_vp will handle the 2-byte write safely.
+ 428   2              
+ 429   2              write_dgus_vp(0x2010, &hour_val, 2); 
+ 430   2              // No delay needed here with the correct 'while(APP_EN)' check in write_dgus_vp, 
+ 431   2              // but keeping small delay is safe for bus stability if desired.
+ 432   2              
+ 433   2              write_dgus_vp(0x2020, &min_val, 2);  
+ 434   2              
+ 435   2              write_dgus_vp(0x2030, &sec_val, 2);  
+ 436   2              
+ 437   2              Second_Updata_Flag = 0;
+ 438   2          }
+ 439   1      }
+ 440          
+ 441          /**
+ 442           * @brief Timer 1 Interrupt Service Routine.
+ 443           * @details This ISR is triggered every 1ms to drive the software RTC. It increments a counter
+ 444           *          and, upon reaching 1000ms (1 second), it updates the `real_time` structure and
+ 445           *          sets a flag for the main loop to update the display.
+ 446           */
+ 447          void T1_ISR_PC(void) interrupt 3
+ 448          {
+ 449   1          TH1 = T1MS >> 8;
+ 450   1          TL1 = T1MS;
+ 451   1          SysTick_RTC++;
+ 452   1          
+ 453   1          // 1 Second Heartbeat
+ 454   1          if(SysTick_RTC >= 1000)
+ 455   1          {
+ 456   2              SysTick_RTC = 0;
+ 457   2              real_time.sec++;
+ 458   2              if(real_time.sec > 59)
+ 459   2              {
+ 460   3                  real_time.sec = 0;
+ 461   3                  real_time.min++;
+ 462   3                  if(real_time.min > 59)
+ 463   3                  {
+ 464   4                      real_time.min = 0;
+ 465   4                      real_time.hour++;
+ 466   4                      if(real_time.hour > 23)
+ 467   4                      {
+ 468   5                          real_time.hour = 0;
+ 469   5                          real_time.day++;
+ 470   5                          // Basic Month/Day logic (simplified)
+ 471   5                          if(real_time.day > 28) { 
+ 472   6                              // Full calendar logic should go here if needed
+ 473   6                          } 
+ 474   5                      }
+ 475   4                  }
+ 476   3              }
+ 477   2              Second_Updata_Flag = 1; // Flag to update display in main loop
+ 478   2          }
+ 479   1      }
+ 480          
+ 481          /**
+ 482           * @brief Provides a blocking delay for a specified number of milliseconds.
+ 483           * @details This function uses a global counter `SysTick` which is decremented by the Timer 0 ISR.
+ 484           *          It is a "busy-wait" or "cooperative" delay, not a true sleep.
+ 485           * @param n The number of milliseconds to delay.
+ 486           */
+C51 COMPILER V9.60.0.0   SYS                                                               12/05/2025 16:48:11 PAGE 9   
+
+ 487          void delay_ms(u16 n)
+ 488          {
+ 489   1          SysTick = n;
+ 490   1          while(SysTick);
+ 491   1      }
+ 492          
+ 493          
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE
-   CODE SIZE        =   1333    ----
+   CODE SIZE        =   1920    ----
    CONSTANT SIZE    =     30    ----
    XDATA SIZE       =     24      43
    PDATA SIZE       =   ----    ----

@@ -11,6 +11,8 @@
 #include "sys.h"
 #include "uart.h"
 
+extern u8 ADC_Read_Raw(u8 channel, u16* raw_value_ptr);
+extern u8 LED_Set_Brightness_Now(u8 brightness);
 // Global variables
 /** @brief Counter variable incremented by button press. */
 u16 my_variable = 0;
@@ -18,6 +20,13 @@ u16 my_variable = 0;
 u16 button_val = 0;
 /** @brief Timestamp for the last keep-alive message sent. */
 u16 last_keep_alive = 0;
+/** @brief Timestamp for P1 update. */
+u16 last_p1_update = 0;
+/** @brief Counter for Port 1. */
+u8 p1_cnt = 0;
+/** @brief ADC Value storage */
+u16 adc0_raw_val = 0;
+u32 adc0_mv_val = 0; // Koristimo 32-bit za racunicu da izbegnemo overflow
 
 /**
  * @brief Main Entry Point
@@ -25,10 +34,12 @@ u16 last_keep_alive = 0;
  */
 void main(void)
 {
+    u8 buff[4]; // Buffer za citanje
     // --- Initialization Phase ---
     INIT_CPU();     // Initialize CPU core registers and GPIO directions
     T0_Init();      // Initialize Timer 0 (System Tick)
     T1_Init();      // Initialize Timer 1 (RTC Tick)
+    T2_Init();      // Initialize Timer 2 (1kHz PWM on P2.0)
     UART5_Init();   // Initialize UART5 for communication
     RTC_Init();     // Initialize Real Time Clock
     PORT_Init();    // Initialize Port IO specific configurations
@@ -38,6 +49,7 @@ void main(void)
 
     // Initialize the keep-alive timer
     last_keep_alive = Wait_Count;
+    last_p1_update = Wait_Count;
 
     // --- Main Control Loop ---
     while(1)
@@ -45,31 +57,68 @@ void main(void)
         // Update RTC and synchronize with Display VP if needed
         Time_Update();
 
+        // --- P1 Update (100ms) ---
+        if((u16)(Wait_Count - last_p1_update) >= 100)
+        {
+            last_p1_update = Wait_Count;
+            P1 = p1_cnt;
+            p1_cnt++;
+            LED_Set_Brightness_Now(p1_cnt/3);
+        }
+
         // --- Keep Alive Mechanism ---
         // Check if 5 seconds (5000 ticks) have passed since the last keep-alive
         if((u16)(Wait_Count - last_keep_alive) >= 5000)
         {
             last_keep_alive = Wait_Count; // Reset timestamp
 
-            // --- ISPIS TACNOG VREMENA (NOVI KOD) ---
+            // --- ISPIS TACNOG VREMENA ---
             UART5_SendStr("Time: ", 6);
-
-            // Sat (H:M:S format)
             UART5_Sendbyte((real_time.hour / 10) + '0');
             UART5_Sendbyte((real_time.hour % 10) + '0');
             UART5_Sendbyte(':');
-
-            // Minuta
             UART5_Sendbyte((real_time.min / 10) + '0');
             UART5_Sendbyte((real_time.min % 10) + '0');
             UART5_Sendbyte(':');
-
-            // Sekunda
             UART5_Sendbyte((real_time.sec / 10) + '0');
             UART5_Sendbyte((real_time.sec % 10) + '0');
-
-            UART5_SendStr("\r\n", 2); // Novi red za vrijeme
-            // ----------------------------------------
+            UART5_SendStr(" | ", 3);
+            
+            // --- 2. NOVO: CITANJE ADC0 I SLANJE ---
+            // Citanje kanala 0 (ADC0)
+            if(ADC_Read_Raw(1, &adc0_raw_val) == 0) // Promenjeno na kanal 1
+            {
+                UART5_SendStr(" | ADC1 Raw: ", 13);
+                
+                // Ispis sirove vrednosti (0 - 65535)
+                // Posto je vrednost > 4095, ovo je sigurno 16-bitni podatak
+                UART5_Sendbyte((adc0_raw_val / 10000) + '0');
+                UART5_Sendbyte(((adc0_raw_val % 10000) / 1000) + '0');
+                UART5_Sendbyte(((adc0_raw_val % 1000) / 100) + '0');
+                UART5_Sendbyte(((adc0_raw_val % 100) / 10) + '0');
+                UART5_Sendbyte((adc0_raw_val % 10) + '0');
+                
+                // --- ISPRAVKA FORMULE ---
+                // Buduci da dobijate vrednost 7834 (sto je vece od 4095), hardver radi u 16-bitnom rezimu.
+                // Moramo deliti sa 65535 umesto sa 4095.
+                // Formula: Napon(mV) = (Raw * 3300) / 65535
+                
+                adc0_mv_val = ((u32)adc0_raw_val * 3300) / 65535;
+                
+                UART5_SendStr(" (", 2);
+                // Ispis napona (do 3300 mV, tj. 3.30V)
+                UART5_Sendbyte(((adc0_mv_val / 1000) % 10) + '0');
+                UART5_Sendbyte('.');
+                UART5_Sendbyte(((adc0_mv_val / 100) % 10) + '0');
+                UART5_Sendbyte(((adc0_mv_val / 10) % 10) + '0');
+                UART5_Sendbyte('V');
+                UART5_Sendbyte(')');
+            }
+            else
+            {
+                UART5_SendStr(" | ADC1 Error", 13);
+            }
+            UART5_SendStr("\r\n", 2);
         }
 
         // --- UART RX Handling ---
@@ -119,7 +168,7 @@ void main(void)
 
             UART5_SendStr("]\r\n", 3); // End of line
 
-            
+
             button_val = 0;
             write_dgus_vp(0x1200, &button_val, 2);
             // FORCE RESET LOOP: Keep writing 0 until the hardware acknowledges it

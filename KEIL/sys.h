@@ -18,6 +18,11 @@ typedef char            s8;     // 8-bit signed integer
 typedef short           s16;    // 16-bit signed integer
 typedef long            s32;    // 32-bit signed integer
 
+// --- System Macros ---
+#define WDT_ON()    MUX_SEL |= 0x02     /**< Enable Watchdog */
+#define WDT_OFF()   MUX_SEL &= 0xFD     /**< Disable Watchdog */
+#define WDT_RST()   MUX_SEL |= 0x01     /**< Reset Watchdog (Feed) */
+
 // --- System Constants ---
 // Oscillator Frequency (T5L Core frequency approx 206 MHz)
 #define FOSC     206438400UL 
@@ -73,6 +78,11 @@ void T0_Init(void);
  * @brief Initialize Timer 1
  */
 void T1_Init(void);
+
+/**
+ * @brief Initialize Timer 2
+ */
+void T2_Init(void);
 
 /**
  * @brief Read from DGUS Variable Pointer (VP) memory
