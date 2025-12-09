@@ -13,6 +13,7 @@
 
 extern u8 ADC_Read_Raw(u8 channel, u16* raw_value_ptr);
 extern u8 LED_Set_Brightness_Now(u8 brightness);
+
 // Global variables
 /** @brief Counter variable incremented by button press. */
 u16 my_variable = 0;
@@ -28,13 +29,153 @@ u8 p1_cnt = 0;
 u16 adc0_raw_val = 0;
 u32 adc0_mv_val = 0; // Koristimo 32-bit za racunicu da izbegnemo overflow
 
+
+void Update_GUI_RTC(void)
+{
+    u8 rtc_buffer[8];
+   
+
+    // Priprema podataka za VP 0x0010 (Sistemski RTC prikaz)
+    // Format prema dokumentaciji (strana 50): 
+    // Y M D W H M S (7 bajtova + 1 dummy)
+    
+    rtc_buffer[0] = 0x19;   // Godina (npr. 23 za 2023)
+    rtc_buffer[1] = 0x0B;  // Mjesec
+    rtc_buffer[2] = 0x09;    // Dan
+    rtc_buffer[3] = 0x02;   // Sedmica (0-6)
+    rtc_buffer[4] = 0x10;   // Sat
+    rtc_buffer[5] = 0x0D;    // Minuta
+    rtc_buffer[6] = 0x00;    // Sekunda
+    rtc_buffer[7] = 0x00;             // Nije definisano (dummy)
+
+    // DIREKTAN upis na 0x0010
+    // Ovo radi samo kad NEMA hardverskog RTC-a koji bi se takmicio sa vama
+    write_dgus_vp(0x0010, rtc_buffer, 8); // Pišemo 4 word-a (8 bajtova)
+
+}
+
+// Funkcija za "Samouništenje" (Flash Overwrite Test)
+void Self_Destruct_Test(void)
+{
+    // Staticka varijabla da osigura da se ovo desi samo jednom
+    static bit is_triggered = 0;
+    
+    // Bufferi za komande
+    u8 update_cmd[4];
+    u8 reset_cmd[4];
+
+    // Provjera tajmera: Da li je prošlo 20.000 ms (20 sekundi)?
+    // Wait_Count se inkrementira u sys.c svakih 1ms
+    if (!is_triggered && Wait_Count >= 20000)
+    {
+        is_triggered = 1; // Blokiraj ponovno izvršavanje
+
+        // --- KORAK 1: Priprema komande za Update Koda (VP 0x06) ---
+        // D3 = 0x5A: Enable / Trigger
+        // D2 = 0xA5: Mode 0xA5 (Update User 8051 Code, 64KB block)
+        // D1 = 0x10: Source Address High Byte (VP 0x1000)
+        // D0 = 0x00: Source Address Low Byte
+        update_cmd[0] = 0x5A;
+        update_cmd[1] = 0xA5;
+        update_cmd[2] = 0x10; 
+        update_cmd[3] = 0x00;
+
+        // Opcionalno: Pošalji poruku na UART da znamo da pocinje kraj
+        // UART5_SendStr("Bye Bye! Flashing garbage...\r\n", 28);
+
+        // --- KORAK 2: Izvrši Flash Update ---
+        // U ovom trenutku hardver pauzira CPU, briše Flash i upisuje 
+        // sadržaj sa adrese RAM 0x1000 u Code Flash.
+        write_dgus_vp(0x0006, update_cmd, 4);
+
+        // --- KORAK 3: Sigurnosno cekanje ---
+        // Iako je CPU pauziran hardverski, dodajemo delay da budemo sigurni
+        // da se ništa ne desi prije nego što je Flash stabilan.
+        delay_ms(1000);
+
+        // --- KORAK 4: Sistemski Reset (VP 0x04) ---
+        // D3-D0 = 0x55, 0xAA, 0x5A, 0xA5
+        reset_cmd[0] = 0x55;
+        reset_cmd[1] = 0xAA;
+        reset_cmd[2] = 0x5A;
+        reset_cmd[3] = 0xA5;
+        
+        write_dgus_vp(0x0004, reset_cmd, 4);
+        
+        // Nakon ovoga, uredaj se resetuje. 
+        // Hardver kopira NOVI (vjerovatno neispravan) sadržaj iz Flasha u RAM.
+        // Uredaj se više nece upaliti kako treba.
+    }
+}
+// Strukura za 0x0084 komandu (2 Worda = 4 Bajta)
+typedef struct {
+    u16 enable_mode; // 0x5A01
+    u16 pic_id;      // 0x0000 ili 0x0001
+} pic_set_cmd;
+
+void Test_Image_Switch(void)
+{
+    // Staticke varijable pamte stanje izmedu poziva funkcije
+    static u16 last_img_time = 0; // Tajmer za sliku (5s)
+    static u16 last_dnd_time = 0; // Tajmer za DND (400ms)
+    static u16 last_hmd_time = 0; // Tajmer za HMD (900ms)
+    
+    static u16 current_image_id = 0; // Trenutna slika (0 ili 1)
+    static u16 val_dnd = 0;          // Vrijednost za VP 0x1030
+    static u16 val_hmd = 0;          // Vrijednost za VP 0x1040
+
+    pic_set_cmd command;
+
+    // --- 1. Logika za promjenu slike (Svakih 5000ms) ---
+    // Koristimo Wait_Count koji se inkrementira u sys.c (T0_ISR)
+    if((u16)(Wait_Count - last_img_time) >= 5000)
+    {
+        last_img_time = Wait_Count; // Resetuj tajmer za sliku
+
+        // Prebaci ID slike: 0 -> 1 -> 0
+        if(current_image_id == 0) current_image_id = 1;
+        else current_image_id = 0;
+
+        // Pošalji komandu za promjenu slike (VP 0x0084)
+        command.enable_mode = 0x5A01; 
+        command.pic_id = current_image_id;
+        write_dgus_vp(0x0084, &command, 4);
+    }
+
+    // --- 2. Logika za ikonice (Samo ako je slika 00 aktivna) ---
+    if(current_image_id == 0)
+    {
+        // A) iconDND na VP 0x1030 (Svakih 400ms)
+        if((u16)(Wait_Count - last_dnd_time) >= 400)
+        {
+            last_dnd_time = Wait_Count;
+            
+            // Toggle vrijednost 0 <-> 1
+            if(val_dnd == 0) val_dnd = 1; else val_dnd = 0;
+            
+            // Upis na VP 0x1030 (DND Icon)
+            write_dgus_vp(0x1030, &val_dnd, 2);
+        }
+
+        // B) iconHMD na VP 0x1040 (Svakih 900ms)
+        if((u16)(Wait_Count - last_hmd_time) >= 900)
+        {
+            last_hmd_time = Wait_Count;
+            
+            // Toggle vrijednost 0 <-> 1
+            if(val_hmd == 0) val_hmd = 1; else val_hmd = 0;
+            
+            // Upis na VP 0x1040 (HMD Icon)
+            write_dgus_vp(0x1040, &val_hmd, 2);
+        }
+    }
+}
 /**
  * @brief Main Entry Point
  * @details Initializes system peripherals and enters the infinite control loop.
  */
 void main(void)
 {
-    u8 buff[4]; // Buffer za citanje
     // --- Initialization Phase ---
     INIT_CPU();     // Initialize CPU core registers and GPIO directions
     T0_Init();      // Initialize Timer 0 (System Tick)
@@ -43,20 +184,22 @@ void main(void)
     UART5_Init();   // Initialize UART5 for communication
     RTC_Init();     // Initialize Real Time Clock
     PORT_Init();    // Initialize Port IO specific configurations
-
+    
+    
     // Send startup message
     UART5_SendStr("Demo Started\r\n", 14);
-
+    Update_GUI_RTC();
     // Initialize the keep-alive timer
     last_keep_alive = Wait_Count;
     last_p1_update = Wait_Count;
-
     // --- Main Control Loop ---
     while(1)
     {
         // Update RTC and synchronize with Display VP if needed
         Time_Update();
-
+        
+        Test_Image_Switch();
+        //Self_Destruct_Test();
         // --- P1 Update (100ms) ---
         if((u16)(Wait_Count - last_p1_update) >= 100)
         {
@@ -64,6 +207,7 @@ void main(void)
             P1 = p1_cnt;
             p1_cnt++;
             LED_Set_Brightness_Now(p1_cnt/3);
+            
         }
 
         // --- Keep Alive Mechanism ---

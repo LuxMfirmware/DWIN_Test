@@ -489,5 +489,59 @@ void delay_ms(u16 n)
     SysTick = n;
     while(SysTick);
 }
+/**
+ * @brief Upisuje cijeli 16.icl fajl (256KB) koristeci podatke sa RAM adrese 0x1000.
+ * @details Ponavlja upis istog 32KB RAM buffera 8 puta na uzastopne Flash adrese.
+ * Koristi 'delay_ms' da osigura da GUI jezgro stigne obraditi svaki blok.
+ */
+void Test_Flash_Write_Full_16ICL(void)
+{
+    u8 i;
+    u8 cmd_buffer[12];
+    
+    // Proracun pocetnog bloka za ID 16:
+    // Svaki ID = 256KB. Komanda piše 32KB.
+    // 256 / 32 = 8 blokova po ID-u.
+    // Pocetni blok = 16 * 8 = 128 (0x0080).
+    u16 start_block_addr = 0x0080; 
 
+    // Petlja od 0 do 7 (ukupno 8 blokova)
+    for(i = 0; i < 8; i++)
+    {
+        // --- 1. Priprema komande za VP 0x00AA ---
+
+        // D11:D10 - Enable (0x5A) & Mode (0x02 - Write 32KB)
+        cmd_buffer[0] = 0x5A;
+        cmd_buffer[1] = 0x02;
+
+        // D9:D8 - Flash Block Address
+        // U prvoj iteraciji 0x0080, u drugoj 0x0081, itd...
+        cmd_buffer[2] = (u8)((start_block_addr + i) >> 8); 
+        cmd_buffer[3] = (u8)(start_block_addr + i);        
+
+        // D7:D6 - Source RAM Address
+        // Uvijek uzimamo isti uzorak sa 0x1000 kako ste tražili
+        cmd_buffer[4] = 0x10;
+        cmd_buffer[5] = 0x00;
+
+        // D5:D4 - Delay/Safety Wait (Parametar za GUI jezgro)
+        // Kažemo GUI jezgru da priceka 100ms nakon upisa
+        cmd_buffer[6] = 0x00;
+        cmd_buffer[7] = 0x64; 
+
+        // D3:D0 - Reserved (0x00)
+        cmd_buffer[8] = 0x00;
+        cmd_buffer[9] = 0x00;
+        cmd_buffer[10] = 0x00;
+        cmd_buffer[11] = 0x00;
+
+        // --- 2. Slanje komande ---
+        write_dgus_vp(0x00AA, cmd_buffer, 12);
+
+        // --- 3. Obavezno cekanje ---
+        // Moramo pauzirati OS jezgro da ne pregazimo komandu dok GUI jezgro piše u Flash.
+        // 200ms je sigurna margina (32KB upis traje neko vrijeme).
+        delay_ms(200); 
+    }
+}
 

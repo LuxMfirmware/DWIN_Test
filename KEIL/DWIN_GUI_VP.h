@@ -61,4 +61,7 @@
 // Preporučeni početak za varijable ako se koriste krive (0x1000-0x4FFF je bafer za 8 kanala)
 #define VP_USER_START_WITH_CURVE    0x5000  // Korisničke VP adrese (Preporučeno) [cite: 574]
 
+// Takt iz dokumentacije (825.7536 MHz)
+#define PWM_BASE_CLOCK 825753600UL
+
 #endif // __DWIN_GUI_VP_H__
