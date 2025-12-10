@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 1   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE SYS
@@ -62,7 +62,7 @@ line level    source
   52   1          // Ensure Watchdog is OFF during init (Factory Default: 0x60 enables UART2/3)
   53   1          WDT_OFF(); 
   54   1      
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 2   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 2   
 
   55   1          PORTDRV = 0x01;   // Drive Strength +/- 8mA
   56   1          IEN0 = 0x00;      
@@ -126,7 +126,7 @@ line level    source
  114   1          P0MDOUT |= 0x02; // P0.1 (RS485 EN)
  115   1          
  116   1          // P1: Set to Push-Pull for LED/Counter demo
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 3   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 3   
 
  117   1          // We configure ALL P1 pins as Output to ensure the main loop counter works on all 8 bits.
  118   1          // Note: If AD1 is physically P1.1, reading it while driving it as Output might return the Output stat
@@ -190,7 +190,7 @@ line level    source
  175           *          500us High + 500us Low = 1ms Period = 1kHz.
  176           */
  177          void T2_Init(void)
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 4   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 4   
 
  178          {
  179   1          T2CON = 0x70;       // 16-bit Auto-reload
@@ -254,7 +254,7 @@ line level    source
  237   2              mask = 0x00;
  238   2              if(len > 0) { DATA1 = *buf++; mask |= 0x02; len--; }
  239   2              if(len > 0) { DATA0 = *buf++; mask |= 0x01; len--; }
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 5   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 5   
 
  240   2              
  241   2              if(mask)
@@ -318,7 +318,7 @@ line level    source
  298           */
  299          void read_dgus_vp(u32 addr, void* vbuf, u16 len)
  300          {
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 6   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 6   
 
  301   1          u8* buf = (u8*)vbuf;
  302   1          u32 OS_addr = addr >> 1;
@@ -382,7 +382,7 @@ line level    source
  360          
  361          // --- Interrupt Service Routines & Logic ---
  362          
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 7   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 7   
 
  363          /**
  364           * @brief Timer 0 Interrupt Service Routine.
@@ -446,7 +446,7 @@ line level    source
  422   2              min_val = real_time.min;
  423   2              sec_val = real_time.sec;
  424   2      
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 8   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 8   
 
  425   2              // --- WRITE TO DGUS VP ---
  426   2              // Using strict Even addresses spaced out to ensure no overlap.
@@ -510,7 +510,7 @@ line level    source
  484           *          It is a "busy-wait" or "cooperative" delay, not a true sleep.
  485           * @param n The number of milliseconds to delay.
  486           */
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 9   
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 9   
 
  487          void delay_ms(u16 n)
  488          {
@@ -574,7 +574,7 @@ line level    source
  546   1      }
  547          
 
-C51 COMPILER V9.60.0.0   SYS                                                               12/09/2025 18:18:17 PAGE 10  
+C51 COMPILER V9.60.0.0   SYS                                                               12/10/2025 16:37:04 PAGE 10  
 
 
 MODULE INFORMATION:   STATIC OVERLAYABLE

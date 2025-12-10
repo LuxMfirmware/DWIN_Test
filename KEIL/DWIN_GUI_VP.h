@@ -64,4 +64,9 @@
 // Takt iz dokumentacije (825.7536 MHz)
 #define PWM_BASE_CLOCK 825753600UL
 
+// --- NTC Konfiguracija ---
+#define AMBIENT_NTC_RREF    10000.0f  // 10k NTC value at 25 degrees
+#define AMBIENT_NTC_B_VALUE 3977.0f   // NTC beta parameter
+#define AMBIENT_NTC_PULLUP  10000.0f  // 10k pullup resistor
+
 #endif // __DWIN_GUI_VP_H__

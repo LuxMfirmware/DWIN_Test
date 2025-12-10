@@ -33,6 +33,8 @@ compiling uart.c...
 compiling DWIN_PERIPHERALS.c...
 linking...
 *** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_UART_SEND_HEX?MAIN
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
     SEGMENT: ?PR?SELF_DESTRUCT_TEST?MAIN
 *** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
     SEGMENT: ?PR?TEST_FLASH_WRITE_FULL_16ICL?SYS
@@ -42,16 +44,16 @@ linking...
     SEGMENT: ?PR?RTC_SET_TIME_DGUS?DWIN_PERIPHERALS
 *** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
     SEGMENT: ?PR?_RTC_READ_TIME_DGUS?DWIN_PERIPHERALS
-Program Size: data=15.1 xdata=145 code=4726
+Program Size: data=15.2 xdata=167 code=6661
 creating hex file from ".\obj\T5L51"...
 User command #1: .\obj\1.bat
 C:\ProjektiOtvoreni\DWIN_Test\KEIL>cd obj 
 C:\ProjektiOtvoreni\DWIN_Test\KEIL\obj>srec_cat.exe T5L51.hex -Intel -o T5L51.bin -Binary  
-srec_cat: T5L51.hex: 18: warning: data records not in strictly ascending order
-    (expected >= 0x1219, got 0x102A)
+srec_cat: T5L51.hex: 22: warning: data records not in strictly ascending order
+    (expected >= 0x18E9, got 0x12B7)
 C:\ProjektiOtvoreni\DWIN_Test\KEIL\obj>echo.
-".\obj\T5L51" - 0 Error(s), 5 Warning(s).
-Build Time Elapsed:  00:00:00
+".\obj\T5L51" - 0 Error(s), 6 Warning(s).
+Build Time Elapsed:  00:00:01
 </pre>
 </body>
 </html>

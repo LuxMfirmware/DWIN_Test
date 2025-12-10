@@ -1,4 +1,4 @@
-C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/09/2025 18:18:17 PAGE 1   
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/10/2025 16:37:04 PAGE 1   
 
 
 C51 COMPILER V9.60.0.0, COMPILATION OF MODULE DWIN_PERIPHERALS
@@ -62,7 +62,7 @@ line level    source
   52   1      }
   53          
   54          /**
-C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/09/2025 18:18:17 PAGE 2   
+C51 COMPILER V9.60.0.0   DWIN_PERIPHERALS                                                  12/10/2025 16:37:04 PAGE 2   
 
   55           * @brief TEST KOMANDA: Postavlja osvetljenost pozadinskog svetla na 50% (0x32).
   56           * @details Koristi VP_LED_CONFIG (0x0082).

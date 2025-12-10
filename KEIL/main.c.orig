@@ -34,27 +34,22 @@ u16 adc1_raw_val = 0;
 float calculated_temp = 0.0f;
 s16 temp_int_for_vp = 0; // Signed integer za VP (x100)
 
-// Hidden Button / Long Press Logic
-u32 start_vrijeme = 0; 
-u8 mjerenje_aktivno = 0; 
-u8 okinuto = 0; 
-u8 status;       // Touch Status
-u16 x_pos;       // Touch X
-u16 y_pos;       // Touch Y
-u8 tp_dump[7];   // Touch Raw Buffer
+// Globalni buffer za touch podatke (8 bajtova = 4 worda)
+u8 tp_dump[8];
+u16 last_debug_timer = 0;
 
 // Pomocna funkcija za slanje jednog bajta kao HEX (npr. 0xA5 ispisuje "A5 ")
 void UART_Send_Hex(u8 b)
 {
     u8 high = (b >> 4) & 0x0F;
     u8 low = b & 0x0F;
-
-    if(high < 10) UART5_Sendbyte(high + '0');
+    
+    if(high < 10) UART5_Sendbyte(high + '0'); 
     else UART5_Sendbyte(high - 10 + 'A');
-
-    if(low < 10) UART5_Sendbyte(low + '0');
+    
+    if(low < 10) UART5_Sendbyte(low + '0'); 
     else UART5_Sendbyte(low - 10 + 'A');
-
+    
     UART5_Sendbyte(' '); // Razmak za citljivost
 }
 // --- Funkcija za kalkulaciju temperature ---
@@ -254,7 +249,7 @@ void main(void)
     // Initialize the keep-alive timer
     last_keep_alive = Wait_Count;
     last_p1_update = Wait_Count;
-
+    last_debug_timer = Wait_Count;
     // --- Main Control Loop ---
     while(1)
     {
@@ -380,46 +375,34 @@ void main(void)
             button_val = 0;
             write_dgus_vp(0x1200, &button_val, 2);
         }
-
-        // H) SKRIVENI MENI LOGIKA (Long Press 5s u gornjem lijevom kutu)
-        // ---------------------------------------------------------------
-        read_dgus_vp(0x0016, tp_dump, 7); // Citanje koordinata dodira
-
-        status = tp_dump[1];                     
-        x_pos = (tp_dump[2] << 8) | tp_dump[3];  
-        y_pos = (tp_dump[4] << 8) | tp_dump[5];  
-
-        // Provjera: Pritisak aktivan (0x03) i koordinate unutar 60x60 piksela
-        if (status == 0x03 && x_pos <= 60 && y_pos <= 60) 
+// Citaj svakih 50ms da ne zagušiš UART buffer, ali da bude "real-time"
+        if((u16)(Wait_Count - last_debug_timer) >= 50)
         {
-            if (mjerenje_aktivno == 0) {
-                start_vrijeme = Wait_Count; // **ISPRAVLJENO: Koristimo Wait_Count umjesto HAL_GetTick**
-                mjerenje_aktivno = 1;          
-                okinuto = 0;                   
+            last_debug_timer = Wait_Count;
+
+            // Citaj 4 worda (8 bajtova) sa adrese 0x0016
+            // 0x0016 je sistemska varijabla gdje T5L upisuje koordinate i status
+            read_dgus_vp(0x0016, tp_dump, 4);
+
+            // tp_dump[1] je obicno STATUS dodira (0x01 = Pritisnuto, 0x00 = Pusteno)
+            // Ako je razlicito od 0, znaci da ekran registruje nešto
+            if(tp_dump[1] != 0x00)
+            {
+                UART5_SendStr("TOUCH: ", 7);
+                
+                // Ispisi svih 8 bajtova redom
+                // [0]=Header(5A) [1]=Status [2]=X_High [3]=X_Low [4]=Y_High [5]=Y_Low ...
+                UART_Send_Hex(tp_dump[0]);
+                UART_Send_Hex(tp_dump[1]);
+                UART_Send_Hex(tp_dump[2]);
+                UART_Send_Hex(tp_dump[3]);
+                UART_Send_Hex(tp_dump[4]);
+                UART_Send_Hex(tp_dump[5]);
+                UART_Send_Hex(tp_dump[6]);
+                UART_Send_Hex(tp_dump[7]);
+                
+                UART5_SendStr("\r\n", 2);
             }
-            
-            if (mjerenje_aktivno == 1 && okinuto == 0) {
-                // Provjera 5000ms
-                if ((u16)(Wait_Count - start_vrijeme) >= 5000) {
-                    
-                    // --- AKCIJA NAKON 5 SEKUNDI ---
-                    u16 trigger_val = 1; 
-                    // **ISPRAVLJENO: Slanje pointera &trigger_val, ne konstante**
-                    write_dgus_vp(0x1050, &trigger_val, 2); 
-                    
-                    UART5_SendStr("Hidden Menu Triggered!\r\n", 24);
-                    
-                    okinuto = 1; // Sprijeci ponavljanje
-                }
-            }
-        } 
-        else {
-            // Reset ako se pusti prst ili izade iz zone
-            mjerenje_aktivno = 0;
-            start_vrijeme = 0;
-            okinuto = 0;
         }
-        
-    }
+     }
 }
-//*******************************************************************//
